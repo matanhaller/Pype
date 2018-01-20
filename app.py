@@ -28,10 +28,11 @@ class EntryScreen(Screen):
         username = self.ids['username_input'].text
 
         # Notifying communication component
-        app.send_gui_event(json.dumps({
+        app.send_gui_event({
             'type': 'join',
+            'subtype': 'request'
             'username': username
-        }))
+        })
 
 
 class PypeApp(App):
@@ -50,10 +51,11 @@ class PypeApp(App):
         """Sends GUI event to communication component of app.
 
         Args:
-            data (str): Event data (in JSON format).
+            data (dict): Event data (in JSON format).
         """
 
-        self.gui_event_sender.sendto(data, ('localhost', self.gui_event_port))
+        self.gui_event_sender.sendto(json.dumps(
+            data), ('localhost', self.gui_event_port))
 
     def build(self):
         """App builder.
