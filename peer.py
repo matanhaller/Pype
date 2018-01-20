@@ -8,6 +8,8 @@ import json
 
 from kivy.app import App
 
+from task import Task
+
 
 class Peer(object):
 
@@ -79,12 +81,9 @@ class Peer(object):
             # Join request/response
             if data['type'] == 'login':
                 if data['subtype'] == 'request':
-                    self.task_lst.append({
-                        'sender': self.server_conn
-                        'message': {
-                            'type': 'join'
-                            'username': data['username']
-                        }
-                    })
+                    self.task_lst.append(Task(self.server_conn, {
+                        'type': 'join'
+                        'username': data['username']
+                    }))
                 elif data['subtype'] == 'response':
                     pass
