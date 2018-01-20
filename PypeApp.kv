@@ -3,14 +3,16 @@
 <EntryScreen>
 	name: 'entry_screen'
 	BoxLayout:
+		id: 'main_layout'
 		orientation: 'vertical'
 		Label:
 			text: 'Welcome to Pype'
 			font_size: 48
 		TextInput:
-			id: username_input
+			id: 'username_input'
 			hint_text: 'Enter username'
 			font_size: 24
 		Button:
 			text: 'Join'
 			font_size: 36
+			on_press: root.on_join_btn_press
