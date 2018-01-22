@@ -11,7 +11,7 @@ from kivy.app import App
 from task import Task
 
 
-class Peer(object):
+class PypePeer(object):
 
     """App peer class.
 
@@ -59,7 +59,7 @@ class Peer(object):
         try:
             self.server_conn.connect(Peer.SERVER_ADDR)
         except socket.error:
-            pass  # (Change to something meaningful later on)
+            pass  # (Change to something meaningful in the future)
 
         # Peer mainloop
         while True:
