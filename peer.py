@@ -5,6 +5,7 @@
 import socket
 import select
 import json
+from sets import Set
 
 from kivy.app import App
 
@@ -63,16 +64,25 @@ class PypePeer(object):
 
         # Peer mainloop
         while True:
-            rlst, wlst, xlst = select.select(*((self.connections,) * 3))
+            read_set, write_set, err_set = select.select(
+                *((self.connections,) * 3))
+            read_set, write_set, err_set = set(
+                read_set), set(write_set), set(err_set)
 
-    def handle_readables(rlst):
+            # Handling readables
+            self.handle_readables(read_set)
+
+            # Handling tasks
+            self.handle_tasks(write_set)
+
+    def handle_readables(self, read_set):
         """Handles all readable connections in mainloop.
 
         Args:
-            rlst (list): Readable connection list.
+            read_set (Set): Readable connections set.
         """
 
-        for conn in rlst:
+        for conn in read_set:
             data, addr = conn.recvfrom(Peer.MAX_RECV_SIZE)
 
             # Parsing JSON data
@@ -81,9 +91,20 @@ class PypePeer(object):
             # Join request/response
             if data['type'] == 'login':
                 if data['subtype'] == 'request':
-                    self.task_lst.append(Task(self.server_conn, {
+                    self.task_lst.add(Task(self.server_conn, {
                         'type': 'join'
                         'username': data['username']
                     }))
                 elif data['subtype'] == 'response':
                     pass
+
+    def handle_tasks(self, write_set):
+        """Iterates over tasks and sends messages if possible.
+
+        Args:
+            write_set (Set): Writable connections set.
+        """
+        for task in self.task_lst:
+            if task.conn in write_set:
+                task.send_msg()
+                write_set.remove(task)

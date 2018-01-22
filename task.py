@@ -11,7 +11,7 @@ class Task(object):
     """Task that communication component should handle.
 
     Attributes:
-        conn (socket.socket): The connection from which the message
+        conn (socket.socket): The connection to which the message
          should be sent.
         dst (tuple): Destination address (for UDP sockets only).
         msg (dict): Message to be sent (in JSON format).
@@ -21,7 +21,7 @@ class Task(object):
         """Constructor method.
 
         Args:
-            conn (socket.socket): The connection from which the message
+            conn (socket.socket): The connection to which the message
              should be sent.
             msg (dict): Message to be sent (in JSON format).
             dst (tuple, optional): Destination address (for UDP sockets only).
@@ -32,7 +32,7 @@ class Task(object):
             self.dst = dst
 
     def send_msg(self):
-        """Sends message from connection.
+        """Sends message to connection.
         """
 
         str_msg = json.dumps(self.msg)
