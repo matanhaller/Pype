@@ -5,9 +5,13 @@
 import socket
 import select
 import json
+import sys
 from sets import Set
 
 from kivy.app import App
+from kivy.clock import Clock
+from kivy.clock import mainthread
+from kivy.uix.label import Label
 
 from task import Task
 
@@ -17,10 +21,10 @@ class PypePeer(object):
     """App peer class.
 
     Attributes:
-        connection_lst (list): Active connections.
+        conn_lst (list): Active connections.
         gui_event_conn (socket.socket): UDP connection with GUI component of app.
-        MAX_RECV_SIZE (int): Maximum number of bytes to receive at once.
-        SERVER_ADDR (tuple): Server address info.
+        MAX_RECV_SIZE (int): Maximum number of bytes to receive at once. (static)
+        SERVER_ADDR (tuple): Server address info. (static)
         server_conn (socket.socket): Connection with server.
         task_lst (list): List of all pending tasks.
 
@@ -38,7 +42,7 @@ class PypePeer(object):
         self.server_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.gui_event_conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.gui_event_conn.bind(('localhost', 0))
-        self.connection_lst = [self.server_conn, self.gui_event_conn]
+        self.conn_lst = [self.server_conn, self.gui_event_conn]
         self.task_lst = []
 
     def get_gui_event_port(self):
@@ -54,20 +58,18 @@ class PypePeer(object):
         """Peer mainloop method.
         """
 
-        app = App.get_running_app()
-
         # Connecting to server
         try:
-            self.server_conn.connect(Peer.SERVER_ADDR)
+            self.server_conn.connect(PypePeer.SERVER_ADDR)
         except socket.error:
             pass  # (Change to something meaningful in the future)
 
         # Peer mainloop
         while True:
             read_set, write_set, err_set = select.select(
-                *((self.connection_lst,) * 3))
-            read_set, write_set, err_set = set(read_set),
-                set(write_set), set(err_set)
+                *((self.conn_lst,) * 3))
+            read_set, write_set, err_set = Set(
+                read_set), Set(write_set), Set(err_set)
 
             # Handling readables
             self.handle_readables(read_set)
@@ -83,23 +85,29 @@ class PypePeer(object):
         """
 
         for conn in read_set:
-            if self.conn.type == socket.SOCK_STREAM:
+            if conn.type == socket.SOCK_STREAM:
                 data = conn.recv(PypePeer.MAX_RECV_SIZE)
             else:
-                data, addr = conn.recvfrom(Peer.MAX_RECV_SIZE)
+                data, addr = conn.recvfrom(PypePeer.MAX_RECV_SIZE)
 
             # Parsing JSON data
             data = json.loads(data)
 
+            # GUI terminated
+            if data['type'] == 'terminate':
+                self.server_conn.close()
+                self.gui_event_conn.close()
+                sys.exit()
+
             # Join request/response
             if data['type'] == 'join':
                 if data['subtype'] == 'request':
-                    self.task_lst.add(Task(self.server_conn, {
-                        'type': 'join'
+                    self.task_lst.append(Task(self.server_conn, {
+                        'type': 'join',
                         'username': data['username']
                     }))
                 elif data['subtype'] == 'response':
-                    pass
+                    Clock.schedule_once(self.f, 0)
 
     def handle_tasks(self, write_set):
         """Iterates over tasks and sends messages if possible.
@@ -110,4 +118,8 @@ class PypePeer(object):
         for task in self.task_lst:
             if task.conn in write_set:
                 task.send_msg()
-                write_set.remove(task)
+                self.task_lst.remove(task)
+
+    def f(self, dt):
+        App.get_running_app().root_sm.get_screen('entry_screen').ids. \
+            main_layout.add_widget(Label(text='test'))
