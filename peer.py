@@ -17,12 +17,12 @@ class PypePeer(object):
     """App peer class.
 
     Attributes:
-        connections (list): Active connections.
+        connection_lst (list): Active connections.
         gui_event_conn (socket.socket): UDP connection with GUI component of app.
         MAX_RECV_SIZE (int): Maximum number of bytes to receive at once.
         SERVER_ADDR (tuple): Server address info.
         server_conn (socket.socket): Connection with server.
-        task_lst (list): Description
+        task_lst (list): List of all pending tasks.
 
     Deleted Attributes:
         tasks (list): Data to be sent by peer.
@@ -38,7 +38,7 @@ class PypePeer(object):
         self.server_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.gui_event_conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.gui_event_conn.bind(('localhost', 0))
-        self.connections = [self.server_conn, self.gui_event_conn]
+        self.connection_lst = [self.server_conn, self.gui_event_conn]
         self.task_lst = []
 
     def get_gui_event_port(self):
@@ -65,9 +65,9 @@ class PypePeer(object):
         # Peer mainloop
         while True:
             read_set, write_set, err_set = select.select(
-                *((self.connections,) * 3))
-            read_set, write_set, err_set = set(
-                read_set), set(write_set), set(err_set)
+                *((self.connection_lst,) * 3))
+            read_set, write_set, err_set = set(read_set),
+                set(write_set), set(err_set)
 
             # Handling readables
             self.handle_readables(read_set)
@@ -83,13 +83,16 @@ class PypePeer(object):
         """
 
         for conn in read_set:
-            data, addr = conn.recvfrom(Peer.MAX_RECV_SIZE)
+            if self.conn.type == socket.SOCK_STREAM:
+                data = conn.recv(PypePeer.MAX_RECV_SIZE)
+            else:
+                data, addr = conn.recvfrom(Peer.MAX_RECV_SIZE)
 
             # Parsing JSON data
             data = json.loads(data)
 
             # Join request/response
-            if data['type'] == 'login':
+            if data['type'] == 'join':
                 if data['subtype'] == 'request':
                     self.task_lst.add(Task(self.server_conn, {
                         'type': 'join'
