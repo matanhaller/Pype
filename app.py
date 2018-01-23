@@ -29,22 +29,19 @@ class EntryScreen(Screen):
 
     def on_join_btn_press(self):
         """Sends join request to server.
-
-        Returns:
-            TYPE: Description
         """
 
         app = App.get_running_app()
-        username = self.ids['username_input'].text
-        if not re.match(USERNAME_REGEX, username):
-            return  # (Notify error in the future)
-
-        # Notifying communication component
-        app.send_gui_event({
-            'type': 'join',
-            'subtype': 'request'
-            'username': username
-        })
+        username = self.ids.username_input.text
+        if not re.match(EntryScreen.USERNAME_REGEX, username):
+            pass  # (Notify error in the future)
+        else:
+            # Notifying communication component
+            app.send_gui_event({
+                'type': 'join',
+                'subtype': 'request',
+                'username': username
+            })
 
 
 class PypeApp(App):
@@ -52,11 +49,11 @@ class PypeApp(App):
     """Main app class.
 
     Attributes:
-        peer (PypePeer): App's communication component.
         gui_event_port (int): Port of GUI event listener.
         gui_event_sender (socket.socket): UDP socket that sends GUI events to
          the communication component of app.
-        root (ScreenManager): Root screen manager.
+        peer (PypePeer): App's communication component.
+        root_sm (ScreenManager): Root screen manager.
     """
 
     def send_gui_event(self, data):
@@ -69,6 +66,14 @@ class PypeApp(App):
         self.gui_event_sender.sendto(json.dumps(
             data), ('localhost', self.gui_event_port))
 
+    def on_close(self):
+        """Application close event callback.
+        """
+
+        app.send_gui_event({
+            'type': 'terminate'
+        })
+
     def build(self):
         """App builder.
 
@@ -77,21 +82,21 @@ class PypeApp(App):
         """
 
         # Creating root object with all app screens
-        self.root = ScreenManager()
-        self.root.add_widget(EntryScreen())
+        self.root_sm = ScreenManager()
+        self.root_sm.add_widget(EntryScreen())
 
         # Creating communication thread
         self.peer = PypePeer()
-        self.gui_event_port = self.app_peer.get_gui_event_port()
-        # threading.Thread(target=self.peer.run).start()
+        self.gui_event_port = self.peer.get_gui_event_port()
+        threading.Thread(target=self.peer.run).start()
 
         # Creating user event sender
         self.gui_event_sender = socket.socket(
             socket.AF_INET, socket.SOCK_DGRAM)
 
-        return self.root
+        return self.root_sm
 
 
 # Running app
 if __name__ == '__main__':
-    PypeApp().run()
+	PypeApp().run()
