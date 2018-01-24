@@ -107,6 +107,7 @@ class PypeServer(object):
                                 'status': 'no'
                             }))
                         else:
+                            self.user_dct[data['username']] = conn
                             self.task_lst.append(Task(conn, {
                                 'type': 'join',
                                 'subtype': 'response',
