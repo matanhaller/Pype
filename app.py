@@ -34,7 +34,7 @@ class EntryScreen(Screen):
         app = App.get_running_app()
         username = self.ids.username_input.text
         if not re.match(EntryScreen.USERNAME_REGEX, username):
-            pass  # (Notify error in the future)
+            self.ids.main_layout.add_widget(Label(text='Invalid username'))
         else:
             # Notifying communication component
             app.send_gui_event({
