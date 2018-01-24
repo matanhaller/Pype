@@ -66,11 +66,11 @@ class PypeApp(App):
         self.gui_event_sender.sendto(json.dumps(
             data), ('localhost', self.gui_event_port))
 
-    def on_close(self):
+    def on_stop(self):
         """Application close event callback.
         """
 
-        app.send_gui_event({
+        self.send_gui_event({
             'type': 'terminate'
         })
 
