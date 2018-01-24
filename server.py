@@ -6,6 +6,7 @@ import logging
 import socket
 import select
 import json
+import logging
 from sets import Set
 
 from task import Task
@@ -14,12 +15,13 @@ from task import Task
 class PypeServer(object):
 
     """App server class.
-    
+
     Attributes:
         ADDR (tuple): Address to which the server is bound.
         conn_lst (list): List of all active connections.
         LISTEN_QUEUE_SIZE (int): Number of connections that server can queue
          before accepting (5 is typically enough). (static)
+        logger (logging.Logger): Logging object.
         MAX_RECV_SIZE (int): Maximum number of bytes to receive at once.
         server_listener (socket.socket): Server socket. (static)
         task_lst (list): List of all pending tasks.
@@ -33,6 +35,13 @@ class PypeServer(object):
     def __init__(self):
         """Constructor method.
         """
+
+        # Cofiguring logger
+        logging.basicConfig(
+            format='[%(asctime)s]%(levelname)s: %(message)s',
+            datefmt='%d-%m-%Y %H:%M:%S')
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.INFO)
 
         self.server_listener = socket.socket(
             socket.AF_INET, socket.SOCK_STREAM)
@@ -61,7 +70,7 @@ class PypeServer(object):
 
     def handle_readables(self, read_set):
         """Handles all readable connections in mainloop.
-        
+
         Args:
             read_set (Set): Readable connections set.
         """
@@ -71,6 +80,7 @@ class PypeServer(object):
             if conn is self.server_listener:
                 new_conn, addr = self.server_listener.accept()
                 self.conn_lst.append(new_conn)
+                self.logger.info('{} connected.'.format(addr))
             else:
                 if conn.type == socket.SOCK_STREAM:
                     data = conn.recv(PypeServer.MAX_RECV_SIZE)
@@ -79,6 +89,8 @@ class PypeServer(object):
 
                 # Closing socket if disconnected
                 if not data:
+                    self.logger.info(
+                        '{} disconnected.'.format(conn.getsockname()))
                     self.conn_lst.remove(conn)
                     conn.close()
                 else:
@@ -87,7 +99,6 @@ class PypeServer(object):
 
                     # Join requests
                     if data['type'] == 'join':
-                        print 'Got it!'
                         # Checking if username already exists
                         if data['username'] in self.user_dct:
                             self.task_lst.append(Task(conn, {
@@ -104,7 +115,7 @@ class PypeServer(object):
 
     def handle_tasks(self, write_set):
         """Iterates over tasks and sends messages if possible.
-        
+
         Args:
             write_set (Set): Writable connections set.
         """
