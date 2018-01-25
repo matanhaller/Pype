@@ -6,8 +6,6 @@ import socket
 import select
 import json
 import sys
-from sets import Set
-from functools import partial
 
 from kivy.app import App
 from kivy.clock import Clock
@@ -20,7 +18,7 @@ from task import Task
 class PypePeer(object):
 
     """App peer class.
-
+    
     Attributes:
         conn_lst (list): Active connections.
         gui_event_conn (socket.socket): UDP connection with GUI component of app.
@@ -28,12 +26,12 @@ class PypePeer(object):
         SERVER_ADDR (tuple): Server address info. (static)
         server_conn (socket.socket): Connection with server.
         task_lst (list): List of all pending tasks.
-
+    
     Deleted Attributes:
         tasks (list): Data to be sent by peer.
     """
 
-    SERVER_ADDR = ('192.168.101.122', 5050)
+    SERVER_ADDR = ('10.0.0.17', 5050)
     MAX_RECV_SIZE = 65536
 
     def __init__(self):
@@ -48,7 +46,7 @@ class PypePeer(object):
 
     def get_gui_event_port(self):
         """Get random allocated port number of GUI event listener.
-
+        
         Returns:
             int: The port number.
         """
@@ -67,25 +65,23 @@ class PypePeer(object):
 
         # Peer mainloop
         while True:
-            read_set, write_set, err_set = select.select(
+            read_lst, write_lst, err_lst = select.select(
                 *((self.conn_lst,) * 3))
-            read_set, write_set, err_set = Set(
-                read_set), Set(write_set), Set(err_set)
 
             # Handling readables
-            self.handle_readables(read_set)
+            self.handle_readables(read_lst)
 
             # Handling tasks
-            self.handle_tasks(write_set)
+            self.handle_tasks(write_lst)
 
-    def handle_readables(self, read_set):
+    def handle_readables(self, read_lst):
         """Handles all readable connections in mainloop.
-
+        
         Args:
-            read_set (Set): Readable connections set.
+            read_lst (list): Readable connections list.
         """
 
-        for conn in read_set:
+        for conn in read_lst:
             if conn.type == socket.SOCK_STREAM:
                 data = conn.recv(PypePeer.MAX_RECV_SIZE)
             else:
@@ -111,34 +107,34 @@ class PypePeer(object):
                     if data['status'] == 'ok':
                         pass  # (Change to something meaningful in the future)
                     else:
-                        msg = 'Username already exists'
-                        Clock.schedule_once(
-                            partial(self.add_bottom_label_entry_screen, msg), 0)
+                        Clock.schedule_once(self.add_bottom_lbl_entry_screen, 0)
 
-    def handle_tasks(self, write_set):
+    def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
-
+        
         Args:
-            write_set (Set): Writable connections set.
+            write_lst (list): Writable connections list.
         """
         for task in self.task_lst:
-            if task.conn in write_set:
+            if task.conn in write_lst:
                 task.send_msg()
                 self.task_lst.remove(task)
 
-    def add_bottom_label_entry_screen(self, msg, dt):
+    def add_bottom_lbl_entry_screen(self, dt):
         """Adds bottom label to entry screen (scheduled by Kivy clock).
-
+        
         Args:
-            msg (str): Label message.
             dt (float): Time elapsed between scheduling
              and execution (passed autiomatically).
         """
 
         app = App.get_running_app()
         entry_screen = app.root_sm.get_screen('entry_screen')
+        err_msg = 'Username already exists'
 
-        if len(entry_screen.ids.main_layout.children) > 3:
-            entry_screen.ids.main_layout.children[0].text = msg
+        # Checking if there already exists a bottom label
+        if hasattr(entry_screen, 'bottom_lbl'):
+            entry_screen.bottom_lbl.text = err_msg
         else:
-            entry_screen.ids.main_layout.add_widget(Label(text=msg))
+            entry_screen.bottom_lbl = Label(text=err_msg)
+            entry_screen.ids.main_layout.add_widget(entry_screen.bottom_lbl)

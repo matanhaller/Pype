@@ -36,10 +36,12 @@ class EntryScreen(Screen):
 
         # Checking if username is valid
         if not re.match(EntryScreen.USERNAME_REGEX, username):
-            if len(self.ids.main_layout.children) > 3:
-                self.ids.main_layout.children[0].text = 'Invalid username'
+            err_msg = 'Invalid username'
+            if hasattr(self, 'bottom_lbl'):
+                self.bottom_lbl.text = err_msg
             else:
-                self.ids.main_layout.add_widget(Label(text='Invalid username'))
+                self.bottom_lbl = Label(text=err_msg)
+                self.ids.main_layout.add_widget(self.bottom_lbl)
         else:
             # Notifying communication component
             app.send_gui_event({

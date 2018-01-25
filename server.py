@@ -7,9 +7,9 @@ import socket
 import select
 import json
 import logging
-from sets import Set
 
 from task import Task
+from bidict import BiDict
 
 
 class PypeServer(object):
@@ -26,7 +26,7 @@ class PypeServer(object):
         MAX_RECV_SIZE (int): Maximum number of bytes to receive at once.
         server_listener (socket.socket): Server socket. (static)
         task_lst (list): List of all pending tasks.
-        user_dct (dict): Dictionary that maps username to connection with peer.
+        user_dct (BiDict): Dictionary that maps username to connection with peer.
     """
 
     ADDR = ('0.0.0.0', 5050)
@@ -50,33 +50,31 @@ class PypeServer(object):
         self.server_listener.listen(PypeServer.LISTEN_QUEUE_SIZE)
         self.conn_dct = {}
         self.task_lst = []
-        self.user_dct = {}
+        self.user_dct = BiDict()
 
     def run(self):
         """Server mainloop method.
         """
 
         while True:
-            read_set, write_set, err_set = select.select(
+            read_lst, write_lst, err_lst = select.select(
                 self.conn_dct.keys() + [self.server_listener],
                 *((self.conn_dct.keys(),) * 2))
-            read_set, write_set, err_set = Set(
-                read_set), Set(write_set), Set(err_set)
 
             # Handling readables
-            self.handle_readables(read_set)
+            self.handle_readables(read_lst)
 
             # Handling tasks
-            self.handle_tasks(write_set)
+            self.handle_tasks(write_lst)
 
-    def handle_readables(self, read_set):
+    def handle_readables(self, read_lst):
         """Handles all readable connections in mainloop.
 
         Args:
-            read_set (Set): Readable connections set.
+            read_lst (list): Readable connections list.
         """
 
-        for conn in read_set:
+        for conn in read_lst:
             # Handling new connections
             if conn is self.server_listener:
                 new_conn, addr = self.server_listener.accept()
@@ -92,6 +90,8 @@ class PypeServer(object):
                 if not data:
                     self.logger.info(
                         '{} disconnected.'.format(self.conn_dct[conn]))
+                    if conn in self.user_dct:
+                        del self.user_dct[conn]
                     del self.conn_dct[conn]
                     conn.close()
                 else:
@@ -115,15 +115,15 @@ class PypeServer(object):
                                 'status': 'ok'
                             }))
 
-    def handle_tasks(self, write_set):
+    def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
 
         Args:
-            write_set (Set): Writable connections set.
+            write_lstt (list): Writable connections list.
         """
 
         for task in self.task_lst:
-            if task.conn in write_set:
+            if task.conn in write_lst:
                 task.send_msg()
                 self.task_lst.remove(task)
 
