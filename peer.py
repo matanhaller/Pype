@@ -7,6 +7,7 @@ import select
 import json
 import sys
 from sets import Set
+from functools import partial
 
 from kivy.app import App
 from kivy.clock import Clock
@@ -32,7 +33,7 @@ class PypePeer(object):
         tasks (list): Data to be sent by peer.
     """
 
-    SERVER_ADDR = ('10.0.0.17', 5050)
+    SERVER_ADDR = ('192.168.101.122', 5050)
     MAX_RECV_SIZE = 65536
 
     def __init__(self):
@@ -107,7 +108,12 @@ class PypePeer(object):
                         'username': data['username']
                     }))
                 elif data['subtype'] == 'response':
-                    Clock.schedule_once(self.f, 0)
+                    if data['status'] == 'ok':
+                        pass  # (Change to something meaningful in the future)
+                    else:
+                        msg = 'Username already exists'
+                        Clock.schedule_once(
+                            partial(self.add_bottom_label_entry_screen, msg), 0)
 
     def handle_tasks(self, write_set):
         """Iterates over tasks and sends messages if possible.
@@ -120,6 +126,19 @@ class PypePeer(object):
                 task.send_msg()
                 self.task_lst.remove(task)
 
-    def f(self, dt):
-        App.get_running_app().root_sm.get_screen('entry_screen').ids. \
-            main_layout.add_widget(Label(text='test'))
+    def add_bottom_label_entry_screen(self, msg, dt):
+        """Adds bottom label to entry screen (scheduled by Kivy clock).
+
+        Args:
+            msg (str): Label message.
+            dt (float): Time elapsed between scheduling
+             and execution (passed autiomatically).
+        """
+
+        app = App.get_running_app()
+        entry_screen = app.root_sm.get_screen('entry_screen')
+
+        if len(entry_screen.ids.main_layout.children) > 3:
+            entry_screen.ids.main_layout.children[0].text = msg
+        else:
+            entry_screen.ids.main_layout.add_widget(Label(text=msg))
