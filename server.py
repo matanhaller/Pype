@@ -18,7 +18,8 @@ class PypeServer(object):
 
     Attributes:
         ADDR (tuple): Address to which the server is bound.
-        conn_lst (list): List of all active connections.
+        conn_dct (dict): Dictionary mapping all active connections
+         to their addresses.
         LISTEN_QUEUE_SIZE (int): Number of connections that server can queue
          before accepting (5 is typically enough). (static)
         logger (logging.Logger): Logging object.
@@ -47,7 +48,7 @@ class PypeServer(object):
             socket.AF_INET, socket.SOCK_STREAM)
         self.server_listener.bind(PypeServer.ADDR)
         self.server_listener.listen(PypeServer.LISTEN_QUEUE_SIZE)
-        self.conn_lst = []
+        self.conn_dct = {}
         self.task_lst = []
         self.user_dct = {}
 
@@ -57,8 +58,8 @@ class PypeServer(object):
 
         while True:
             read_set, write_set, err_set = select.select(
-                self.conn_lst + [self.server_listener],
-                *((self.conn_lst,) * 2))
+                self.conn_dct.keys() + [self.server_listener],
+                *((self.conn_dct.keys(),) * 2))
             read_set, write_set, err_set = Set(
                 read_set), Set(write_set), Set(err_set)
 
@@ -79,7 +80,7 @@ class PypeServer(object):
             # Handling new connections
             if conn is self.server_listener:
                 new_conn, addr = self.server_listener.accept()
-                self.conn_lst.append(new_conn)
+                self.conn_dct[new_conn] = addr
                 self.logger.info('{} connected.'.format(addr))
             else:
                 if conn.type == socket.SOCK_STREAM:
@@ -90,8 +91,8 @@ class PypeServer(object):
                 # Closing socket if disconnected
                 if not data:
                     self.logger.info(
-                        '{} disconnected.'.format(conn.getsockname()))
-                    self.conn_lst.remove(conn)
+                        '{} disconnected.'.format(self.conn_dct[conn]))
+                    del self.conn_dct[conn]
                     conn.close()
                 else:
                     # Parsing JSON data
