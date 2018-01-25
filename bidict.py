@@ -6,7 +6,7 @@ class BiDict(dict):
 
     """Bi-directional dictionary class.
 
-    Note: This datas structure uses double memory compared to regular
+    Note: This data structure uses double memory compared to regular
      dictionary, so it should be used only when need.
     """
 

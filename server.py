@@ -88,10 +88,21 @@ class PypeServer(object):
 
                 # Closing socket if disconnected
                 if not data:
+                    if conn in self.user_dct:
+                        # Notifying other users that user has left
+                        for user_conn in self.user_dct:
+                            if type(user_conn) is socket._socketobject \
+                                    and user_conn is not conn:
+                                self.task_lst.append(Task(user_conn, {
+                                    'type': 'user_leave',
+                                    'username': self.user_dct[user_conn]
+                                }))
+                        self.logger.info(
+                            '{} left.'.format(self.user_dct[conn]))
+                        del self.user_dct[conn]
+
                     self.logger.info(
                         '{} disconnected.'.format(self.conn_dct[conn]))
-                    if conn in self.user_dct:
-                        del self.user_dct[conn]
                     del self.conn_dct[conn]
                     conn.close()
                 else:
@@ -108,18 +119,28 @@ class PypeServer(object):
                                 'status': 'no'
                             }))
                         else:
-                            self.user_dct[data['username']] = conn
+                            self.user_dct[conn] = data['username']
                             self.task_lst.append(Task(conn, {
                                 'type': 'join',
                                 'subtype': 'response',
                                 'status': 'ok'
                             }))
+                            self.logger.info(
+                                '{} joined.'.format(data['username']))
+                            # Notifying other users that a new user has joined
+                            for user_conn in self.user_dct:
+                                if type(user_conn) is socket._socketobject \
+                                        and user_conn is not conn:
+                                    self.task_lst.append(Task(user_conn, {
+                                        'type': 'user_join',
+                                        'username': data['username']
+                                    }))
 
     def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
 
         Args:
-            write_lstt (list): Writable connections list.
+            write_lst (list): Writable connections list.
         """
 
         for task in self.task_lst:
