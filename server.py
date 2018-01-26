@@ -26,7 +26,7 @@ class PypeServer(object):
         MAX_RECV_SIZE (int): Maximum number of bytes to receive at once.
         server_listener (socket.socket): Server socket. (static)
         task_lst (list): List of all pending tasks.
-        user_dct (BiDict): Dictionary that maps username to connection with peer.
+        user_dct (dict): Dictionary that maps username to connection with peer.
     """
 
     ADDR = ('0.0.0.0', 5050)
@@ -50,7 +50,7 @@ class PypeServer(object):
         self.server_listener.listen(PypeServer.LISTEN_QUEUE_SIZE)
         self.conn_dct = {}
         self.task_lst = []
-        self.user_dct = BiDict()
+        self.user_dct = {}
 
     def run(self):
         """Server mainloop method.
@@ -88,18 +88,17 @@ class PypeServer(object):
 
                 # Closing socket if disconnected
                 if not data:
-                    if conn in self.user_dct:
+                    username = self.get_user_from_conn(conn)
+                    if username:
+                        self.logger.info('{} left.'.format(username))
+                        del self.user_dct[username]
+
                         # Notifying other users that user has left
-                        for user_conn in self.user_dct:
-                            if type(user_conn) is socket._socketobject \
-                                    and user_conn is not conn:
-                                self.task_lst.append(Task(user_conn, {
-                                    'type': 'user_leave',
-                                    'username': self.user_dct[user_conn]
-                                }))
-                        self.logger.info(
-                            '{} left.'.format(self.user_dct[conn]))
-                        del self.user_dct[conn]
+                        for user in self.user_dct:
+                            self.task_lst.append(Task(self.user_dct[user], {
+                                'type': 'user_leave',
+                                'username': username
+                            }))
 
                     self.logger.info(
                         '{} disconnected.'.format(self.conn_dct[conn]))
@@ -119,7 +118,7 @@ class PypeServer(object):
                                 'status': 'no'
                             }))
                         else:
-                            self.user_dct[conn] = data['username']
+                            self.user_dct[data['username']] = conn
                             self.task_lst.append(Task(conn, {
                                 'type': 'join',
                                 'subtype': 'response',
@@ -128,10 +127,9 @@ class PypeServer(object):
                             self.logger.info(
                                 '{} joined.'.format(data['username']))
                             # Notifying other users that a new user has joined
-                            for user_conn in self.user_dct:
-                                if type(user_conn) is socket._socketobject \
-                                        and user_conn is not conn:
-                                    self.task_lst.append(Task(user_conn, {
+                            for username in self.user_dct:
+                                if username != data['username']:
+                                    self.task_lst.append(Task(self.user_dct[username], {
                                         'type': 'user_join',
                                         'username': data['username']
                                     }))
@@ -147,6 +145,22 @@ class PypeServer(object):
             if task.conn in write_lst:
                 task.send_msg()
                 self.task_lst.remove(task)
+
+    def get_user_from_conn(self, conn):
+        """Retreives username corresponding to connection (if exists).
+
+        Args:
+            conn (socket.socket): The connection to check.
+
+        Returns:
+            str: The username corresponding to the connection
+             (empty string if if doesn't exist).
+        """
+
+        for username in self.user_dct:
+            if self.user_dct[username] is conn:
+                return username
+        return ''
 
 # Running server
 if __name__ == '__main__':
