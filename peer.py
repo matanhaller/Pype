@@ -31,7 +31,7 @@ class PypePeer(object):
         tasks (list): Data to be sent by peer.
     """
 
-    SERVER_ADDR = ('10.0.0.17', 5050)
+    SERVER_ADDR = ('10.0.0.7', 5050)
     MAX_RECV_SIZE = 65536
 
     def __init__(self):
