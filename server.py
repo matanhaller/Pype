@@ -122,7 +122,8 @@ class PypeServer(object):
                             self.task_lst.append(Task(conn, {
                                 'type': 'join',
                                 'subtype': 'response',
-                                'status': 'ok'
+                                'status': 'ok',
+                                'user_lst': self.user_dct.keys()
                             }))
                             self.logger.info(
                                 '{} joined.'.format(data['username']))
