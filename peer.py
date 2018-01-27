@@ -6,19 +6,21 @@ import socket
 import select
 import json
 import sys
+from functools import partial
 
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.clock import mainthread
 from kivy.uix.label import Label
 
+import app as app_module
 from task import Task
 
 
 class PypePeer(object):
 
     """App peer class.
-    
+
     Attributes:
         conn_lst (list): Active connections.
         gui_event_conn (socket.socket): UDP connection with GUI component of app.
@@ -26,7 +28,7 @@ class PypePeer(object):
         SERVER_ADDR (tuple): Server address info. (static)
         server_conn (socket.socket): Connection with server.
         task_lst (list): List of all pending tasks.
-    
+
     Deleted Attributes:
         tasks (list): Data to be sent by peer.
     """
@@ -46,7 +48,7 @@ class PypePeer(object):
 
     def get_gui_event_port(self):
         """Get random allocated port number of GUI event listener.
-        
+
         Returns:
             int: The port number.
         """
@@ -76,7 +78,7 @@ class PypePeer(object):
 
     def handle_readables(self, read_lst):
         """Handles all readable connections in mainloop.
-        
+
         Args:
             read_lst (list): Readable connections list.
         """
@@ -105,13 +107,16 @@ class PypePeer(object):
                     }))
                 elif data['subtype'] == 'response':
                     if data['status'] == 'ok':
-                        pass  # (Change to something meaningful in the future)
+                        Clock.schedule_once(
+                            partial(self.switch_to_entry_screen,
+                                    data['username'], data['user_lst']), 0)
                     else:
-                        Clock.schedule_once(self.add_bottom_lbl_entry_screen, 0)
+                        Clock.schedule_once(
+                            self.add_bottom_lbl_entry_screen, 0)
 
     def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
-        
+
         Args:
             write_lst (list): Writable connections list.
         """
@@ -122,7 +127,7 @@ class PypePeer(object):
 
     def add_bottom_lbl_entry_screen(self, dt):
         """Adds bottom label to entry screen (scheduled by Kivy clock).
-        
+
         Args:
             dt (float): Time elapsed between scheduling
              and execution (passed autiomatically).
@@ -138,3 +143,18 @@ class PypePeer(object):
         else:
             entry_screen.bottom_lbl = Label(text=err_msg)
             entry_screen.ids.main_layout.add_widget(entry_screen.bottom_lbl)
+
+    def switch_to_entry_screen(self, username, user_lst, dt):
+        """Switches current screen to entry screen (scheduled by kivy clock)>
+
+        Args:
+            username (str): Username.
+            user_lst (list): List of online users.
+            dt (float): Time elapsed between scheduling
+             and execution (passed autiomatically).
+        """
+
+        app = App.get_running_app()
+        main_screen = app_module.MainScreen(username, user_lst)
+        app.root_sm.add_widget(main_screen)
+        app.root_sm.current = 'main_screen'

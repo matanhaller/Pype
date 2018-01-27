@@ -12,8 +12,9 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.screenmanager import ScreenManager, Screen
+from kivy.properties import StringProperty, ListProperty
 
-from peer import PypePeer
+import peer
 
 
 class EntryScreen(Screen):
@@ -21,11 +22,19 @@ class EntryScreen(Screen):
     """Entry screen class (see .kv file for structure).
 
     Attributes:
+        bottom_lbl (Label): Bottom label to be added 
+         (when username is invalid or taken).
         USERNAME_REGEX (str): Regex of valid username format: Non-empty, doesn't
          start with spaces and is no longer than 256 characters.
     """
 
     USERNAME_REGEX = r'[^\s]{1}.{0,255}$'
+
+    def __init__(self):
+        """Constructor method,
+        """
+
+        Screen.__init__(self, name='entry_screen')
 
     def on_join_btn_press(self):
         """Sends join request to server.
@@ -49,6 +58,28 @@ class EntryScreen(Screen):
                 'subtype': 'request',
                 'username': username
             })
+
+
+class MainScreen(Screen):
+
+    """Main screen class (see .kv file for structure).
+
+    Attributes:
+        user_lst (list): List of online users.
+        username (str): Username.
+    """
+
+    def __init__(self, username, user_lst):
+        """Constructor method
+
+        Args:
+            username (str): Username.
+            user_lst (list): List of online users.
+        """
+
+        self.username = username
+        self.user_lst = user_lst
+        Screen.__init__(self, name='main_screen')
 
 
 class PypeApp(App):
@@ -93,7 +124,7 @@ class PypeApp(App):
         self.root_sm.add_widget(EntryScreen())
 
         # Creating communication thread
-        self.peer = PypePeer()
+        self.peer = peer.PypePeer()
         self.gui_event_port = self.peer.get_gui_event_port()
         threading.Thread(target=self.peer.run).start()
 

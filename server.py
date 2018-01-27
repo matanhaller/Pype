@@ -123,6 +123,7 @@ class PypeServer(object):
                                 'type': 'join',
                                 'subtype': 'response',
                                 'status': 'ok',
+                                'username': data['username'],
                                 'user_lst': self.user_dct.keys()
                             }))
                             self.logger.info(

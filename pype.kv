@@ -1,0 +1,52 @@
+<EntryScreen>:
+	id: entry_screen
+	BoxLayout:
+		id: main_layout
+		orientation: 'vertical'
+		Label:
+			text: 'Welcome to Pype'
+			font_size: 48
+		TextInput:
+			id: username_input
+			hint_text: 'Enter username'
+			font_size: 24
+		Button:
+			id: join_btn
+			text: 'Join'
+			font_size: 36
+			on_press: root.on_join_btn_press()
+
+<MainScreen>:
+	id: main_screen
+	BoxLayout:
+		id: main_layout
+		orientation: 'vertical'
+		Label:
+			size_hint_y: 0.2 
+			text: 'Welcome, ' + root.username
+			font_size: 48
+		BoxLayout:
+			id: interface_layout
+			orientation: 'horizontal'
+			size_hint_y: 0.8
+			BoxLayout:
+				id: users_layout
+				orientation: 'vertical'
+				size_hint_x: 0.3
+				Label:
+					id: user_num_lbl
+					size_hint_y: 0.2
+					text: 'Online users ({})'.format(len(root.user_lst) - 1)
+					font_size: 24
+				ScrollView:
+					id: users_section
+					size_hint_y: 0.8
+					GridLayout:
+						id: users_layout
+						cols: 1
+						size_hint_y: None
+						height: self.minimum_height
+			GridLayout:
+				id: calls_layout
+				cols: 3
+				size_hint_x: 0.7
