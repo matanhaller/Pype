@@ -9,7 +9,6 @@ import json
 import logging
 
 from task import Task
-from bidict import BiDict
 
 
 class PypeServer(object):
