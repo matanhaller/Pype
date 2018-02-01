@@ -25,7 +25,6 @@
 			size_hint_y: 0.2 
 			text: 'Welcome, ' + root.username
 			font_size: 36
-			halign: 'left'
 		BoxLayout:
 			id: interface_layout
 			orientation: 'horizontal'
@@ -37,17 +36,35 @@
 				Label:
 					id: user_num_lbl
 					size_hint_y: 0.2
-					text: 'Online users ({})'.format(len(root.user_lst) - 1)
+					text: 'Online users ({})'.format(len(root.user_slot_dct))
 					font_size: 24
 				ScrollView:
-					id: users_section
-					size_hint_y: 0.8
+					size_hint_y: 0.7
+					do_scroll_x: False
 					GridLayout:
-						id: users_layout
+						id: user_slots_layout
 						cols: 1
 						size_hint_y: None
-						height: self.minimum_height
+						height: 0
 			GridLayout:
 				id: calls_layout
 				cols: 3
-				size_hint_x: 0.7
+
+<UserSlot>:
+	size_hint_y: None
+	height: 50
+	orientation: 'horizontal'
+	BoxLayout:
+		orientation: 'vertical'
+		size_hint_x: 0.8
+		Label:
+			size_hint_y: 0.8
+			text: root.username
+			font_size: 18
+		Label:
+			size_hint_y: 0.2
+			text: root.status
+			font_size: 14
+	Button:
+		size_hint_x: 0.2
+		text: 'Call'
