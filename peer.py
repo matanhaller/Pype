@@ -13,7 +13,6 @@ from kivy.clock import Clock
 from kivy.clock import mainthread
 from kivy.uix.label import Label
 
-import app as app_module
 from task import Task
 
 
@@ -24,6 +23,7 @@ class PypePeer(object):
     Attributes:
         conn_lst (list): Active connections.
         gui_event_conn (socket.socket): UDP connection with GUI component of app.
+        logged_in (bool): Whether the peer has logged as a user.
         MAX_RECV_SIZE (int): Maximum number of bytes to receive at once. (static)
         SERVER_ADDR (tuple): Server address info. (static)
         server_conn (socket.socket): Connection with server.
@@ -45,6 +45,7 @@ class PypePeer(object):
         self.gui_event_conn.bind(('localhost', 0))
         self.conn_lst = [self.server_conn, self.gui_event_conn]
         self.task_lst = []
+        self.logged_in = False
 
     def get_gui_event_port(self):
         """Get random allocated port number of GUI event listener.
@@ -107,12 +108,18 @@ class PypePeer(object):
                     }))
                 elif data['subtype'] == 'response':
                     if data['status'] == 'ok':
-                        Clock.schedule_once(
-                            partial(self.switch_to_entry_screen,
-                                    data['username'], data['user_lst']), 0)
+                        self.logged_in = True
+                        Clock.schedule_once(partial(App.get_running_app().switch_to_main_screen,
+                                                    data['username'], data['user_lst']), 0)
                     else:
-                        Clock.schedule_once(
-                            self.add_bottom_lbl_entry_screen, 0)
+                        Clock.schedule_once(App.get_running_app().root_sm.get_screen(
+                            'entry_screen').add_bottom_lbl, 0)
+
+            # User join/leave
+            if data['type'] == 'user':
+                Clock.schedule_once(partial(App.get_running_app().root_sm.get_screen(
+                    'main_screen').update_user_slots_layout,
+                    data['subtype'], data['username']), 0)
 
     def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
@@ -124,37 +131,3 @@ class PypePeer(object):
             if task.conn in write_lst:
                 task.send_msg()
                 self.task_lst.remove(task)
-
-    def add_bottom_lbl_entry_screen(self, dt):
-        """Adds bottom label to entry screen (scheduled by Kivy clock).
-
-        Args:
-            dt (float): Time elapsed between scheduling
-             and execution (passed autiomatically).
-        """
-
-        app = App.get_running_app()
-        entry_screen = app.root_sm.get_screen('entry_screen')
-        err_msg = 'Username already exists'
-
-        # Checking if there already exists a bottom label
-        if hasattr(entry_screen, 'bottom_lbl'):
-            entry_screen.bottom_lbl.text = err_msg
-        else:
-            entry_screen.bottom_lbl = Label(text=err_msg)
-            entry_screen.ids.main_layout.add_widget(entry_screen.bottom_lbl)
-
-    def switch_to_entry_screen(self, username, user_lst, dt):
-        """Switches current screen to entry screen (scheduled by kivy clock)>
-
-        Args:
-            username (str): Username.
-            user_lst (list): List of online users.
-            dt (float): Time elapsed between scheduling
-             and execution (passed autiomatically).
-        """
-
-        app = App.get_running_app()
-        main_screen = app_module.MainScreen(username, user_lst)
-        app.root_sm.add_widget(main_screen)
-        app.root_sm.current = 'main_screen'

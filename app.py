@@ -13,8 +13,9 @@ from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.properties import StringProperty, ListProperty
+from kivy.uix.widget import Widget
 
-import peer
+from peer import PypePeer
 
 
 class EntryScreen(Screen):
@@ -59,27 +60,100 @@ class EntryScreen(Screen):
                 'username': username
             })
 
+    def add_bottom_lbl(self, dt):
+        """Adds bottom label to screen (scheduled by Kivy clock).
+
+        Args:
+            dt (float): Time elapsed between scheduling
+             and execution (passed autiomatically).
+        """
+
+        err_msg = 'Username already exists'
+
+        # Checking if there already exists a bottom label
+        if hasattr(self, 'bottom_lbl'):
+            self.bottom_lbl.text = err_msg
+        else:
+            self.bottom_lbl = Label(text=err_msg)
+            self.ids.main_layout.add_widget(self.bottom_lbl)
+
 
 class MainScreen(Screen):
 
     """Main screen class (see .kv file for structure).
 
     Attributes:
-        user_lst (list): List of online users.
+        user_slot_dct (dict): Dictionary mapping online users to their slots.
         username (str): Username.
     """
 
-    def __init__(self, username, user_lst):
+    def __init__(self, username, user_info_lst):
         """Constructor method
 
         Args:
-            username (str): Username.
+            username (str): Username of current user.
+            user_info_lst (TYPE): Description
+
+        Deleted Parameters:
             user_lst (list): List of online users.
         """
 
         self.username = username
-        self.user_lst = user_lst
+        self.user_slot_dct = {}
+        for name, status in user_info_lst:
+            self.user_slot_dct[name] = UserSlot(name, status)
         Screen.__init__(self, name='main_screen')
+
+        # Adding all slots to online user layout
+        for name in self.user_slot_dct:
+            self.ids.user_slots_layout.add_widget(self.user_slot_dct[name])
+            self.ids.user_slots_layout.height += self.user_slot_dct[
+                name].height
+
+    def update_user_slots_layout(self, mode, username, dt):
+        """Updates user slots layout when user joins or leave (scheduled by kivy clock).
+
+        Args:
+            mode (str): join/leave.
+            username (str): Username.
+            dt (float): Time elapsed between scheduling
+             and execution (passed autiomatically).
+        """
+
+        # User join
+        if mode == 'join':
+            self.user_slot_dct[username] = UserSlot(username, 'available')
+            self.ids.user_slots_layout.add_widget(
+                self.user_slot_dct[username])
+        # User leave
+        else:
+            self.ids.user_slots_layout.remove_widget(
+                self.user_slot_dct[username])
+            del self.user_slot_dct[username]
+        self.ids.user_num_lbl.text = 'Online users ({})'.format(
+            len(self.user_slot_dct))
+
+
+class UserSlot(BoxLayout):
+
+    """Slot representing an online user (see .kv file for structure).
+
+    Attributes:
+        status (str): Whether the user is in call (available/occupied).
+        username (str): Username.
+    """
+
+    def __init__(self, username, status):
+        """Constructor method.
+
+        Args:
+            username (str): Username.
+            status (str): Whether the user is available (i.e. not in call).
+        """
+
+        self.username = username
+        self.status = status
+        BoxLayout.__init__(self)
 
 
 class PypeApp(App):
@@ -124,7 +198,7 @@ class PypeApp(App):
         self.root_sm.add_widget(EntryScreen())
 
         # Creating communication thread
-        self.peer = peer.PypePeer()
+        self.peer = PypePeer()
         self.gui_event_port = self.peer.get_gui_event_port()
         threading.Thread(target=self.peer.run).start()
 
@@ -133,6 +207,20 @@ class PypeApp(App):
             socket.AF_INET, socket.SOCK_DGRAM)
 
         return self.root_sm
+
+    def switch_to_main_screen(self, username, user_info_lst, dt):
+        """Switches current screen to main screen (scheduled by kivy clock).
+
+        Args:
+            username (str): Username.
+            user_info_lst (list): List of online users and their status.
+            dt (float): Time elapsed between scheduling
+             and execution (passed autiomatically).
+        """
+
+        main_screen = MainScreen(username, user_info_lst)
+        self.root_sm.add_widget(main_screen)
+        self.root_sm.current = 'main_screen'
 
 
 # Running app
