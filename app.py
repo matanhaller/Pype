@@ -29,7 +29,7 @@ class EntryScreen(Screen):
          start with spaces and is no longer than 256 characters.
     """
 
-    USERNAME_REGEX = r'[^\s]{1}.{0,255}$'
+    USERNAME_REGEX = r'[^\s].{0,13}$'
 
     def __init__(self):
         """Constructor method,
