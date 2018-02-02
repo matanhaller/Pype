@@ -8,6 +8,7 @@ import socket
 import re
 
 from kivy.app import App
+from kivy.config import Config
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.button import Button
@@ -166,7 +167,12 @@ class PypeApp(App):
          the communication component of app.
         peer (PypePeer): App's communication component.
         root_sm (ScreenManager): Root screen manager.
+        WINDOW_HEIGHT (int): Window height.
+        WINDOW_WIDTH (int): Window width.
     """
+
+    WINDOW_WIDTH = 1280
+    WINDOW_HEIGHT = 720
 
     def send_gui_event(self, data):
         """Sends GUI event to communication component of app.
@@ -192,6 +198,10 @@ class PypeApp(App):
         Returns:
             ScreenManager: Root screen manager.
         """
+
+        # Setting window size
+        Config.set('graphics', 'width', PypeApp.WINDOW_WIDTH)
+        Config.set('graphics', 'height', PypeApp.WINDOW_HEIGHT)
 
         # Creating root object with all app screens
         self.root_sm = ScreenManager()
