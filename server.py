@@ -144,6 +144,16 @@ class PypeServer(object):
                                         'username': data['username']
                                     }))
 
+                    # Call requests
+                    if data['type'] == 'call':
+                        if data['subtype'] == 'request':
+                            self.task_lst.append(Task, self.user_dct[
+                                data['username']].conn, {
+                                'type': 'call',
+                                'subtype': 'participate',
+                                'caller': self.get_user_from_conn(conn)
+                            })
+
     def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
 
