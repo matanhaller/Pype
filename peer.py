@@ -33,7 +33,7 @@ class PypePeer(object):
         tasks (list): Data to be sent by peer.
     """
 
-    SERVER_ADDR = ('10.0.0.7', 5050)
+    SERVER_ADDR = ('192.168.101.122', 5050)
     MAX_RECV_SIZE = 65536
 
     def __init__(self):
@@ -106,14 +106,16 @@ class PypePeer(object):
                         'type': 'join',
                         'username': data['username']
                     }))
-                elif data['subtype'] == 'response':
+                if data['subtype'] == 'response':
                     if data['status'] == 'ok':
                         self.logged_in = True
                         Clock.schedule_once(partial(App.get_running_app().switch_to_main_screen,
                                                     data['username'], data['user_lst']), 0)
                     else:
-                        Clock.schedule_once(App.get_running_app().root_sm.get_screen(
-                            'entry_screen').add_bottom_lbl, 0)
+                        Clock.schedule_once(partial(
+                            App.get_running_app().root_sm.get_screen(
+                                'entry_screen').add_bottom_lbl,
+                            'Username already exists'), 0)
 
             # User join/leave
             if data['type'] == 'user':
@@ -121,12 +123,24 @@ class PypePeer(object):
                     'main_screen').update_user_slots_layout,
                     data['subtype'], data['username']), 0)
 
+            # Call request/response
+            if data['type'] == 'call':
+                if data['subtype'] == 'request':
+                    self.task_lst.append(Task(self.server_conn, {
+                        'type': 'call',
+                        'subtype': 'request',
+                        'username': data['username']
+                    }))
+                if data['subtype'] == 'participate':
+                    pass
+
     def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
 
         Args:
             write_lst (list): Writable connections list.
         """
+
         for task in self.task_lst:
             if task.conn in write_lst:
                 task.send_msg()
