@@ -65,7 +65,7 @@ class EntryScreen(Screen):
         Args:
             msg (str): The message to be shown in the label.
             dt (float): Time elapsed between scheduling
-             and execution (passed autiomatically).
+             and execution (passed automatically).
         """
 
         # Checking if there already exists a bottom label
@@ -113,7 +113,7 @@ class MainScreen(Screen):
             mode (str): join/leave.
             username (str): Username.
             dt (float): Time elapsed between scheduling
-             and execution (passed autiomatically).
+             and execution (passed automatically).
         """
 
         # User join
@@ -135,7 +135,7 @@ class MainScreen(Screen):
         Args:
             user_status (str): User status (available/occupied).
             dt (float): Time elapsed between scheduling
-             and execution (passed autiomatically).
+             and execution (passed automatically).
         """
 
         # Checking if there already exists a footer widget
@@ -176,14 +176,15 @@ class UserSlot(BoxLayout):
         """
 
         app = App.get_running_app()
-        screen = app.root_sm.get_screen('main_screenn')
+        screen = app.root_sm.get_screen('main_screen')
 
         Clock.schedule_once(partial(screen.add_footer_widget, self.status), 0)
-        app.send_gui_event({
-            'type': 'call',
-            'subtype': 'response',
-            'username': self.username
-        })
+        if self.status == 'available':
+            app.send_gui_event({
+                'type': 'call',
+                'subtype': 'response',
+                'username': self.username
+            })
 
 
 class PendingCallSlot(BoxLayout):
@@ -213,7 +214,7 @@ class PendingCallSlot(BoxLayout):
 
         Args:
             dt (float): Time elapsed between scheduling
-             and execution (passed autiomatically).
+             and execution (passed automatically).
         """
 
         self.elapsed_time += 1
@@ -289,7 +290,7 @@ class PypeApp(App):
             username (str): Username.
             user_info_lst (list): List of online users and their status.
             dt (float): Time elapsed between scheduling
-             and execution (passed autiomatically).
+             and execution (passed automatically).
         """
 
         main_screen = MainScreen(username, user_info_lst)
