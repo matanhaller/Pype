@@ -83,3 +83,15 @@
 	Label:
 		id: counter
 		text: '00:00'
+
+<CallSlot>
+	orientation: 'horizontal',
+	Label:
+		size_hint_x: 0.6
+		text: '{} is calling'.format(root.username)
+	Button:
+		size_hint: 0.2
+		text: 'Accept'
+	Button:
+		size_hint: 0.2
+		text: 'Reject'
