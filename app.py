@@ -6,9 +6,11 @@ import json
 import threading
 import socket
 import re
+from functools import partial
 
 from kivy.app import App
 from kivy.config import Config
+from kivy.clock import Clock
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.button import Button
@@ -48,11 +50,7 @@ class EntryScreen(Screen):
         # Checking if username is valid
         if not re.match(EntryScreen.USERNAME_REGEX, username):
             err_msg = 'Invalid username'
-            if hasattr(self, 'bottom_lbl'):
-                self.bottom_lbl.text = err_msg
-            else:
-                self.bottom_lbl = Label(text=err_msg)
-                self.ids.main_layout.add_widget(self.bottom_lbl)
+            Clock.schedule_once(partial(self.add_bottom_lbl, err_msg), 0)
         else:
             # Notifying communication component
             app.send_gui_event({
@@ -61,21 +59,20 @@ class EntryScreen(Screen):
                 'username': username
             })
 
-    def add_bottom_lbl(self, dt):
-        """Adds bottom label to screen (scheduled by Kivy clock).
+    def add_bottom_lbl(self, msg, dt):
+        """Adds bottom label to entry screen (scheduled by Kivy clock).
 
         Args:
+            msg (str): The message to be shown in the label.
             dt (float): Time elapsed between scheduling
              and execution (passed autiomatically).
         """
 
-        err_msg = 'Username already exists'
-
         # Checking if there already exists a bottom label
         if hasattr(self, 'bottom_lbl'):
-            self.bottom_lbl.text = err_msg
+            self.bottom_lbl.text = msg
         else:
-            self.bottom_lbl = Label(text=err_msg)
+            self.bottom_lbl = Label(text=msg)
             self.ids.main_layout.add_widget(self.bottom_lbl)
 
 
@@ -84,6 +81,7 @@ class MainScreen(Screen):
     """Main screen class (see .kv file for structure).
 
     Attributes:
+        bottom_lbl (TYPE): Description
         user_slot_dct (dict): Dictionary mapping online users to their slots.
         username (str): Username.
     """
@@ -94,9 +92,6 @@ class MainScreen(Screen):
         Args:
             username (str): Username of current user.
             user_info_lst (TYPE): Description
-
-        Deleted Parameters:
-            user_lst (list): List of online users.
         """
 
         self.username = username
@@ -134,6 +129,26 @@ class MainScreen(Screen):
         self.ids.user_num_lbl.text = 'Online users ({})'.format(
             len(self.user_slot_dct))
 
+    def add_footer_widget(self, user_status, dt):
+        """Adds footer widget to main screen (schedule by Kivy clock).
+
+        Args:
+            user_status (str): User status (available/occupied).
+            dt (float): Time elapsed between scheduling
+             and execution (passed autiomatically).
+        """
+
+        # Checking if there already exists a footer widget
+        if hasattr(self, 'footer_widget'):
+            self.ids.main_layout.remove_widget(self.footer_widget)
+
+        if user_status == 'available':
+            self.footer_widget = PendingCallSlot(self.username)
+        else:
+            self.footer_widget = Label(text='User is currently unavailable')
+
+        self.ids.main_layout.add_widget(self.footer_widget)
+
 
 class UserSlot(BoxLayout):
 
@@ -155,6 +170,55 @@ class UserSlot(BoxLayout):
         self.username = username
         self.status = status
         BoxLayout.__init__(self)
+
+    def on_call_btn_press(self):
+        """Sends call request with the following user to server.
+        """
+
+        app = App.get_running_app()
+        screen = app.root_sm.get_screen('main_screenn')
+
+        Clock.schedule_once(partial(screen.add_footer_widget, self.status), 0)
+        app.send_gui_event({
+            'type': 'call',
+            'subtype': 'response',
+            'username': self.username
+        })
+
+
+class PendingCallSlot(BoxLayout):
+
+    """Slot to be shown when a call is pending (see .kv file for structure).
+
+    Attributes:
+        elapsed_time (int): Description
+        username (str): The user to call.
+    """
+
+    def __init__(self, username):
+        """Constructor method.
+
+        Args:
+            username (str): The user to call.
+        """
+
+        self.username = username
+        self.elapsed_time = 0
+        BoxLayout.__init__(self)
+        self.counter_update_evt = Clock.schedule_interval(
+            self.update_counter, 1)
+
+    def update_counter(self, dt):
+        """Updates pending call counter every second (scheduled by Kivy clock).
+
+        Args:
+            dt (float): Time elapsed between scheduling
+             and execution (passed autiomatically).
+        """
+
+        self.elapsed_time += 1
+        self.ids.counter.text = '{:0=2d}:{:0=2d}'.format(
+            self.elapsed_time / 60, self.elapsed_time % 60)
 
 
 class PypeApp(App):

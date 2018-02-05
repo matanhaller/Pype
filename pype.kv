@@ -1,3 +1,7 @@
+#<Button>:
+#	background_normal: ''
+#	background_down: ''
+
 <EntryScreen>:
 	id: entry_screen
 	BoxLayout:
@@ -23,7 +27,7 @@
 		id: main_layout
 		orientation: 'vertical'
 		Label:
-			size_hint_y: 0.2 
+			size_hint_y: 0.1 
 			text: 'Welcome, ' + root.username
 			font_size: 36
 		BoxLayout:
@@ -69,3 +73,13 @@
 	Button:
 		size_hint_x: 0.2
 		text: 'Call'
+		on_press: root.on_call_btn_press()
+
+<PendingCallSlot>:
+	size_hint_y: 0.1
+	orientation: 'horizontal'
+	Label:
+		text: 'Calling {}...'.format(root.username)
+	Label:
+		id: counter
+		text: '00:00'
