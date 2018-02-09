@@ -9,18 +9,18 @@ class User(object):
     Attributes:
         conn (socket.socket): Connection for communicating with user.
         status (str): Whether the user is in call (available/occupied).
-        username (str): Username.
+        name (str): Username.
     """
 
-    def __init__(self, username, conn):
+    def __init__(self, name, conn):
         """Constructor method.
 
         Args:
-            username (str): Username.
+            name (str): Username.
             conn (socket.socket): Connection for communicating with user.
         """
 
-        self.username = username
+        self.name = name
         self.conn = conn
         self.status = 'available'
 
