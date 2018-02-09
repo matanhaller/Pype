@@ -33,7 +33,7 @@ class PypePeer(object):
         tasks (list): Data to be sent by peer.
     """
 
-    SERVER_ADDR = ('192.168.101.122', 5050)
+    SERVER_ADDR = ('10.0.0.16', 5050)
     MAX_RECV_SIZE = 65536
 
     def __init__(self):
@@ -132,7 +132,8 @@ class PypePeer(object):
                         'username': data['username']
                     }))
                 if data['subtype'] == 'participate':
-                    pass
+                    Clock.schedule_once(partial(App.get_running_app().root_sm.get_screen(
+                        'main_screen').add_footer_widget, 2, data['caller']), 0)
 
     def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
