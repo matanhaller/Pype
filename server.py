@@ -90,15 +90,15 @@ class PypeServer(object):
                 if not data:
                     user = self.get_user_from_conn(conn)
                     if user:
-                        self.logger.info('{} left.'.format(user.username))
-                        del self.user_dct[user.username]
+                        self.logger.info('{} left.'.format(user.name))
+                        del self.user_dct[user.name]
 
                         # Notifying other users that user has left
                         for username in self.user_dct:
                             self.task_lst.append(Task(self.user_dct[username].conn, {
                                 'type': 'user',
                                 'subtype': 'leave',
-                                'username': user.username
+                                'username': user.name
                             }))
 
                     self.logger.info(
@@ -147,12 +147,12 @@ class PypeServer(object):
                     # Call requests
                     if data['type'] == 'call':
                         if data['subtype'] == 'request':
-                            self.task_lst.append(Task, self.user_dct[
+                            self.task_lst.append(Task(self.user_dct[
                                 data['username']].conn, {
                                 'type': 'call',
                                 'subtype': 'participate',
-                                'caller': self.get_user_from_conn(conn)
-                            })
+                                'caller': self.get_user_from_conn(conn).name
+                            }))
 
     def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
