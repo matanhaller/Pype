@@ -15,7 +15,6 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.screenmanager import ScreenManager, Screen
-from kivy.properties import StringProperty, ListProperty
 from kivy.uix.widget import Widget
 
 from peer import PypePeer
@@ -81,9 +80,12 @@ class MainScreen(Screen):
     """Main screen class (see .kv file for structure).
 
     Attributes:
-        bottom_lbl (TYPE): Description
+        footer_widget (TYPE): Description
         user_slot_dct (dict): Dictionary mapping online users to their slots.
         username (str): Username.
+
+    Deleted Attributes:
+        bottom_lbl (TYPE): Description
     """
 
     def __init__(self, username, user_info_lst):
@@ -129,11 +131,12 @@ class MainScreen(Screen):
         self.ids.user_num_lbl.text = 'Online users ({})'.format(
             len(self.user_slot_dct))
 
-    def add_footer_widget(self, user_status, dt):
+    def add_footer_widget(self, type, username, dt):
         """Adds footer widget to main screen (schedule by Kivy clock).
 
         Args:
-            user_status (str): User status (available/occupied).
+            type (int): Widget type (0: Pending call, 1: User not available, 2: Call).
+            username (str): Username to be used for widget construction.
             dt (float): Time elapsed between scheduling
              and execution (passed automatically).
         """
@@ -142,10 +145,15 @@ class MainScreen(Screen):
         if hasattr(self, 'footer_widget'):
             self.ids.main_layout.remove_widget(self.footer_widget)
 
-        if user_status == 'available':
-            self.footer_widget = PendingCallSlot(self.username)
-        else:
+        # Pending call
+        if type == 0:
+            self.footer_widget = PendingCallSlot(username)
+        # User not available
+        elif type == 1:
             self.footer_widget = Label(text='User is currently unavailable')
+        # Call
+        else:
+            self.footer_widget = CallSlot(username)
 
         self.ids.main_layout.add_widget(self.footer_widget)
 
@@ -178,11 +186,16 @@ class UserSlot(BoxLayout):
         app = App.get_running_app()
         screen = app.root_sm.get_screen('main_screen')
 
-        Clock.schedule_once(partial(screen.add_footer_widget, self.status), 0)
+        if self.status == 'available':
+            type = 0
+        else:
+            type = 1
+        Clock.schedule_once(
+            partial(screen.add_footer_widget, type, self.username), 0)
         if self.status == 'available':
             app.send_gui_event({
                 'type': 'call',
-                'subtype': 'response',
+                'subtype': 'request',
                 'username': self.username
             })
 
@@ -192,6 +205,7 @@ class PendingCallSlot(BoxLayout):
     """Slot to be shown when a call is pending (see .kv file for structure).
 
     Attributes:
+        counter_update_evt (TYPE): Description
         elapsed_time (int): Description
         username (str): The user to call.
     """
@@ -220,6 +234,25 @@ class PendingCallSlot(BoxLayout):
         self.elapsed_time += 1
         self.ids.counter.text = '{:0=2d}:{:0=2d}'.format(
             self.elapsed_time / 60, self.elapsed_time % 60)
+
+
+class CallSlot(BoxLayout):
+
+    """Slot to be shown when a user is calling (see .kv file for structure).
+
+    Attributes:
+        username (str): Name of calling user.
+    """
+
+    def __init__(self, username):
+        """Constructor method.
+
+        Args:
+            username (str): Name of calling user.
+        """
+
+        self.username = username
+        BoxLayout.__init__(self)
 
 
 class PypeApp(App):
