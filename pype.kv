@@ -2,6 +2,14 @@
 #	background_normal: ''
 #	background_down: ''
 
+<ScrollView>:
+	size_hint_y: 0.8
+	do_scroll_x: False
+
+<GridLayout>:
+	size_hint_y: None
+	height: 0
+
 <EntryScreen>:
 	id: entry_screen
 	BoxLayout:
@@ -15,6 +23,7 @@
 			multiline: False
 			hint_text: 'Enter username'
 			font_size: 24
+			on_text_validate: root.on_join_btn_press()
 		Button:
 			id: join_btn
 			text: 'Join'
@@ -34,26 +43,6 @@
 			id: interface_layout
 			orientation: 'horizontal'
 			size_hint_y: 0.8
-			BoxLayout:
-				id: users_layout
-				orientation: 'vertical'
-				size_hint_x: 0.3
-				Label:
-					id: user_num_lbl
-					size_hint_y: 0.2
-					text: 'Online users ({})'.format(len(root.user_slot_dct))
-					font_size: 24
-				ScrollView:
-					size_hint_y: 0.7
-					do_scroll_x: False
-					GridLayout:
-						id: user_slots_layout
-						cols: 1
-						size_hint_y: None
-						height: 0
-			GridLayout:
-				id: calls_layout
-				cols: 3
 
 <UserSlot>:
 	size_hint_y: None
@@ -63,10 +52,12 @@
 		orientation: 'vertical'
 		size_hint_x: 0.8
 		Label:
+			id: user_lbl
 			size_hint_y: 0.8
 			text: root.username
 			font_size: 18
 		Label:
+			id: status_lbl
 			size_hint_y: 0.2
 			text: root.status
 			font_size: 14
@@ -75,7 +66,44 @@
 		text: 'Call'
 		on_press: root.on_call_btn_press()
 
-<PendingCallSlot>:
+<CallSlot>:
+	size_hint: (1 / 3.0, None)
+	height: 50
+	orientation: 'horizontal'
+	Label:
+		size_hint_x: 0.8
+	Button:
+		size_hint_x: 0.2
+		text: 'Join'
+		font_size: 18
+
+<UserLayout>:
+	orientation: 'vertical'
+	size_hint_x: 0.3
+	Label:
+		id: user_num_lbl
+		size_hint_y: 0.2
+		font_size: 24
+	ScrollView:
+		GridLayout:
+			id: user_slot_layout
+			size_hint_y: 0.8
+			cols: 1
+
+<CallLayout>:
+	orientation: 'vertical'
+	size_hint_x: 0.7
+	Label:
+		id: call_num_lbl
+		size_hint_y: 0.2
+		font_size: 24
+	ScrollView:
+		GridLayout:
+			id: call_slot_layout
+			size_hint_y: 0.8
+			cols: 3
+
+<PendingCallFooter>:
 	size_hint_y: 0.1
 	orientation: 'horizontal'
 	Label:
@@ -84,14 +112,17 @@
 		id: counter
 		text: '00:00'
 
-<CallSlot>
-	orientation: 'horizontal',
+<CallFooter>
+	size_hint_y: 0.1
+	orientation: 'horizontal'
 	Label:
 		size_hint_x: 0.6
 		text: '{} is calling'.format(root.username)
 	Button:
-		size_hint: 0.2
+		size_hint_x: 0.2
 		text: 'Accept'
+		on_press: root.on_call_btn_press('accept')
 	Button:
-		size_hint: 0.2
+		size_hint_x: 0.2
 		text: 'Reject'
+		on_press: root.on_call_btn_press('reject')
