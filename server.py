@@ -10,6 +10,7 @@ import logging
 
 from task import Task
 from user import User
+from call import Call
 
 
 class PypeServer(object):
@@ -18,18 +19,21 @@ class PypeServer(object):
 
     Attributes:
         ADDR (tuple): Address to which the server is bound.
+        call_dct (dict): Dictionary mapping call master to call object.
         conn_dct (dict): Dictionary mapping all active connections
          to their addresses.
         LISTEN_QUEUE_SIZE (int): Number of connections that server can queue
          before accepting (5 is typically enough). (static)
         logger (logging.Logger): Logging object.
         MAX_RECV_SIZE (int): Maximum number of bytes to receive at once.
+        multicast_addr_counter (int): Counter of the number of used multicast addresses.
+        multicast_addr_lst (list): List of already used multicast addresses.
         server_listener (socket.socket): Server socket. (static)
         task_lst (list): List of all pending tasks.
-        user_dct (dict): Dictionary that maps username to user object.
+        user_dct (dict): Dictionary mapping username to user object.
     """
 
-    ADDR = ('0.0.0.0', 5050)
+    ADDR = ('', 5050)
     LISTEN_QUEUE_SIZE = 5
     MAX_RECV_SIZE = 65536
 
@@ -51,6 +55,9 @@ class PypeServer(object):
         self.conn_dct = {}
         self.task_lst = []
         self.user_dct = {}
+        self.call_dct = {}
+        self.multicast_addr_lst = []
+        self.multicast_addr_counter = 0
 
     def run(self):
         """Server mainloop method.
@@ -94,12 +101,7 @@ class PypeServer(object):
                         del self.user_dct[user.name]
 
                         # Notifying other users that user has left
-                        for username in self.user_dct:
-                            self.task_lst.append(Task(self.user_dct[username].conn, {
-                                'type': 'user',
-                                'subtype': 'leave',
-                                'username': user.name
-                            }))
+                        self.report_user_update('leave', user.name)
 
                     self.logger.info(
                         '{} disconnected.'.format(self.conn_dct[conn]))
@@ -109,7 +111,7 @@ class PypeServer(object):
                     # Parsing JSON data
                     data = json.loads(data)
 
-                    # Join requests
+                    # Join request/response
                     if data['type'] == 'join':
                         # Checking if username already exists
                         if data['username'] in self.user_dct:
@@ -121,38 +123,79 @@ class PypeServer(object):
                         else:
                             self.user_dct[data['username']] = User(
                                 data['username'], conn)
-                            user_info_lst = []
+                            user_info_lst, call_info_lst = [], []
                             for username in self.user_dct:
                                 if username != data['username']:
-                                    user_info_lst.append(
-                                        [username, self.user_dct[username].status])
+                                    user_info_lst.append({
+                                        'name': username,
+                                        'status': self.user_dct[username].status
+                                    })
+                            for master in self.call_dct:
+                                call_info_lst.append({
+                                    'master': master,
+                                    'user_lst': self.call_dct[master].user_lst
+                                })
                             self.task_lst.append(Task(conn, {
                                 'type': 'join',
                                 'subtype': 'response',
                                 'status': 'ok',
                                 'username': data['username'],
-                                'user_lst': user_info_lst
+                                'user_info_lst': user_info_lst,
+                                'call_info_lst': call_info_lst
                             }))
                             self.logger.info(
                                 '{} joined.'.format(data['username']))
-                            # Notifying other users that a new user has joined
-                            for username in self.user_dct:
-                                if username != data['username']:
-                                    self.task_lst.append(Task(self.user_dct[username].conn, {
-                                        'type': 'user',
-                                        'subtype': 'join',
-                                        'username': data['username']
-                                    }))
+                            self.report_user_update('join', data['username'])
 
-                    # Call requests
-                    if data['type'] == 'call':
+                    # Call request/response
+                    elif data['type'] == 'call':
                         if data['subtype'] == 'request':
+                            caller = self.get_user_from_conn(conn)
+                            for username in [caller.name, data['username']]:
+                                self.report_user_update('status', username)
                             self.task_lst.append(Task(self.user_dct[
                                 data['username']].conn, {
                                 'type': 'call',
                                 'subtype': 'participate',
-                                'caller': self.get_user_from_conn(conn).name
+                                'caller': caller.name
                             }))
+                        elif data['subtype'] == 'callee_response':
+                            caller = data['username']
+                            callee = self.get_user_from_conn(conn)
+                            response_msg = {
+                                'type': 'call',
+                                'subtype': 'callee_response',
+                                'status': data['status']
+                            }
+                            if data['status'] == 'accept':
+                                if self.user_dct[caller].call:
+                                    call = self.user_dct[caller].call
+                                    call.user_join(callee)
+                                else:
+                                    # Creating new call
+                                    call = Call([caller, callee], caller,
+                                                self.get_multicast_addr(),
+                                                self.get_multicast_addr(),
+                                                self.get_multicast_addr())
+                                    self.user_dct[caller].call = call
+                                    self.call_dct[caller] = call
+                                    self.report_call_update(
+                                        caller, 'call_add', user_lst=call.user_lst)
+                                self.user_dct[caller].call = call
+                                # Adding addresses to response message
+                                response_msg['addrs'] = {
+                                    'audio': call.audio_addr,
+                                    'video': call.video_addr,
+                                    'chat': call.chat_addr
+                                }
+                                self.task_lst.append(
+                                    Task(conn, response_msg))
+                            else:
+                                callee = self.get_user_from_conn(conn)
+                                for username in [callee.name, data['username']]:
+                                    self.report_user_update('status', username)
+                            self.task_lst.append(
+                                Task(self.user_dct[caller].conn, response_msg))
 
     def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
@@ -181,6 +224,58 @@ class PypeServer(object):
             if self.user_dct[username].conn is conn:
                 return self.user_dct[username]
         return None
+
+    def report_user_update(self, mode, username):
+        """Reports user join/leave/status change to other users.
+
+        Args:
+            mode (str): join/leave/status.
+            username (str): Username.
+        """
+
+        for active_user in self.user_dct:
+            if mode == 'join' or mode == 'status':
+                if active_user == username:
+                    continue
+            self.task_lst.append(Task(self.user_dct[active_user].conn, {
+                'type': 'user_update',
+                'subtype': mode,
+                'username': username
+            }))
+
+    def report_call_update(self, master, mode, **kwargs):
+        """Notifies users of changes in active calls.
+
+        Args:
+            master (str): Call master.
+            mode (str): call_add/call_remove/user_join/user_leave.
+            **kwargs: Additional necessary keyword arguments.
+        """
+
+        for active_user in self.user_dct:
+            self.task_lst.append(Task(self.user_dct[active_user].conn, {
+                'type': 'call_update',
+                'master': master,
+                'mode': mode,
+                'info': kwargs
+            }))
+
+    def get_multicast_addr(self):
+        """Retreives a vacant multicast IP address.
+
+        Returns:
+            str: The given IP address.
+        """
+
+        # If address list isn't empty, take address from there
+        if self.multicast_addr_lst:
+            return self.multicast_addr_lst.pop()
+
+        # Else, take the next address in range
+        self.multicast_addr_counter += 1
+        return '239.{}.{}.{}'.format(self.multicast_addr_counter / 65536,
+                                     self.multicast_addr_counter / 256,
+                                     self.multicast_addr_counter % 256)
 
 # Running server
 if __name__ == '__main__':
