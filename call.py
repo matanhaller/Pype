@@ -5,26 +5,35 @@
 class Call(object):
 
     """App call class.
-
+    
     Attributes:
+        audio_addr (str): Multicast IP address of audio transmission.
+        chat_addr (str): Multicast IP address of chat.
         master (str): Call master.
         user_lst (lst): List of all users in call.
+        video_addr (str): Multicast IP address of video transmission.
     """
 
-    def __init__(self, user_lst, master):
+    def __init__(self, user_lst, master, audio_addr, video_addr, chat_addr):
         """Constructor method.
-
+        
         Args:
             user_lst (lst): List of all users in call.
             master (str): Call master.
+            audio_addr (str): Multicast IP address of audio transmission.
+            video_addr (str): Multicast IP address of video transmission.
+            chat_addr (str): Multicast IP address of chat.
         """
 
         self.user_lst = user_lst
         self.master = master
+        self.audio_addr = audio_addr
+        self.video_addr = video_addr
+        self.chat_addr = chat_addr
 
     def user_join(username):
         """Adding user to call.
-
+        
         Args:
             username (str): Username of joining user.
         """
@@ -33,7 +42,7 @@ class Call(object):
 
     def user_leave(username):
         """Removing user from call.
-
+        
         Args:
             username (str): Username of leaving user.
         """
