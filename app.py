@@ -6,7 +6,6 @@ import json
 import threading
 import socket
 import re
-from functools import partial
 
 from kivy.app import App
 from kivy.config import Config
@@ -49,7 +48,7 @@ class EntryScreen(Screen):
         # Checking if username is valid
         if not re.match(EntryScreen.USERNAME_REGEX, username):
             err_msg = 'Invalid username'
-            elf.add_bottom_lbl(err_msg)
+            self.add_bottom_lbl(err_msg)
         else:
             # Notifying communication component
             app.send_gui_evt({
@@ -104,8 +103,8 @@ class MainScreen(Screen):
             self.ids.interface_layout.add_widget(layout)
 
     @mainthread
-    def add_footer_widget(self, type, username):
-        """Adds footer widget to main screen (schedule by Kivy clock).
+    def add_footer_widget(self, type, username=None):
+        """Adds footer widget to main screen.
 
         Args:
             type (int): Widget type:
@@ -113,7 +112,8 @@ class MainScreen(Screen):
                 1: User not available
                 2: Call
                 3: Rejected call
-            username (str): Username to be used for widget construction.
+                4: Active call
+            username (str, optional): Username to be used for widget construction.
         """
 
         # Checking if there already exists a footer widget
@@ -139,6 +139,9 @@ class MainScreen(Screen):
                 text='Call has been rejected by user', size_hint_y=0.1)
             self.remove_widget_evt = Clock.schedule_once(
                 lambda dt: self.remove_footer_widget(), 3)
+        # Active call
+        elif type == 4:
+            self.footer_widget = SessionFooter()
 
         self.ids.main_layout.add_widget(self.footer_widget)
 
@@ -151,7 +154,7 @@ class MainScreen(Screen):
         if hasattr(self, 'footer_widget'):
             # Unscheduling counter event if exists
             if hasattr(self.footer_widget, 'counter_update_evt'):
-                self.counter_update_evt.cancel()
+                self.footer_widget.counter_update_evt.cancel()
 
             self.ids.main_layout.remove_widget(self.footer_widget)
             del self.footer_widget
@@ -380,7 +383,7 @@ class PendingCallFooter(BoxLayout):
         self.elapsed_time = 0
         BoxLayout.__init__(self)
         self.counter_update_evt = Clock.schedule_interval(
-            lambda dt: self.update_counter, 1)
+            lambda dt: self.update_counter(), 1)
 
     def update_counter(self):
         """Updates pending call counter every second.
@@ -423,6 +426,42 @@ class CallFooter(BoxLayout):
             'caller': self.username,
             'status': status
         })
+
+
+class SessionDisplay(BoxLayout):
+
+    """Display user sees during a call (see .kv file for structure).
+    """
+
+    pass
+
+
+class SessionFooter(BoxLayout):
+
+    """Footer displayed during a call (see .kv file for structure).
+
+    Attributes:
+        counter_update_evt (ClockEvent): Event scheduled by Kivy clock for
+         updating counter every second. 
+        elapsed_time (int): Description
+    """
+
+    def __init__(self):
+        """Constructor method.
+        """
+
+        self.elapsed_time = 0
+        BoxLayout.__init__(self)
+        self.counter_update_evt = Clock.schedule_interval(
+            lambda dt: self.update_counter(), 1)
+
+    def update_counter(self):
+        """Updates pending call counter every second.
+        """
+
+        self.elapsed_time += 1
+        self.ids.counter.text = '{:0=2d}:{:0=2d}'.format(
+            self.elapsed_time / 60, self.elapsed_time % 60)
 
 
 class PypeApp(App):
