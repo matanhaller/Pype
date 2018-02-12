@@ -126,8 +126,8 @@ class PypePeer(object):
             # Call update
             elif data['type'] == 'call_update':
                 self.schedule_gui_evt(App.get_running_app().root_sm.get_screen(
-                    'main_screen').call_layout.update, data['mode'],
-                    user_lst=data['info']['user_lst'])
+                    'main_screen').call_layout.update, data['mode'], data['master'],
+                    **data['info'])
 
             # Call request/response
             elif data['type'] == 'call':
@@ -136,17 +136,17 @@ class PypePeer(object):
                         self.call_block = True
                         app = App.get_running_app()
                         main_screen = app.root_sm.get_screen('main_screen')
-                        if main_screen.user_layout.user_slot_dct[data['username']].status == 'available':
+                        if main_screen.user_layout.user_slot_dct[data['callee']].status == 'available':
                             type = 0
                             self.task_lst.append(Task(self.server_conn, {
                                 'type': 'call',
                                 'subtype': 'request',
-                                'username': data['username']
+                                'callee': data['callee']
                             }))
                         else:
                             type = 1
                         self.schedule_gui_evt(
-                            main_screen.add_footer_widget, type, data['username'])
+                            main_screen.add_footer_widget, type, data['callee'])
 
                 elif data['subtype'] == 'participate':
                     self.call_block = True
@@ -155,10 +155,12 @@ class PypePeer(object):
                 elif data['subtype'] == 'response':
                     if data['status'] == 'reject':
                         self.call_block = False
+                        self.schedule_gui_evt(App.get_running_app().root_sm.get_screen(
+                            'main_screen').remove_footer_widget)
                     self.task_lst.append(Task(self.server_conn, {
                         'type': 'call',
                         'subtype': 'callee_response',
-                        'username': data['username'],
+                        'caller': data['caller'],
                         'status': data['status']
                     }))
                 elif data['subtype'] == 'callee_response':

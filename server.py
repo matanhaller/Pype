@@ -151,16 +151,16 @@ class PypeServer(object):
                     elif data['type'] == 'call':
                         if data['subtype'] == 'request':
                             caller = self.get_user_from_conn(conn)
-                            for username in [caller.name, data['username']]:
+                            for username in [caller.name, data['callee']]:
                                 self.report_user_update('status', username)
                             self.task_lst.append(Task(self.user_dct[
-                                data['username']].conn, {
+                                data['callee']].conn, {
                                 'type': 'call',
                                 'subtype': 'participate',
                                 'caller': caller.name
                             }))
                         elif data['subtype'] == 'callee_response':
-                            caller = data['username']
+                            caller = data['caller']
                             callee = self.get_user_from_conn(conn)
                             response_msg = {
                                 'type': 'call',
@@ -173,7 +173,7 @@ class PypeServer(object):
                                     call.user_join(callee)
                                 else:
                                     # Creating new call
-                                    call = Call([caller, callee], caller,
+                                    call = Call([caller, callee.name], caller,
                                                 self.get_multicast_addr(),
                                                 self.get_multicast_addr(),
                                                 self.get_multicast_addr())
@@ -192,7 +192,7 @@ class PypeServer(object):
                                     Task(conn, response_msg))
                             else:
                                 callee = self.get_user_from_conn(conn)
-                                for username in [callee.name, data['username']]:
+                                for username in [callee.name, data['caller']]:
                                     self.report_user_update('status', username)
                             self.task_lst.append(
                                 Task(self.user_dct[caller].conn, response_msg))
