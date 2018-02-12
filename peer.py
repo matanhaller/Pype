@@ -27,6 +27,7 @@ class PypePeer(object):
         in_call (bool): Whether the user is in a call.
         logged_in (bool): Whether the peer has logged as a user.
         MAX_RECV_SIZE (int): Maximum number of bytes to receive at once. (static)
+        recv_buf (TYPE): Description
         SERVER_ADDR (tuple): Server address info. (static)
         server_conn (socket.socket): Connection with server.
         task_lst (list): List of all pending tasks.
@@ -87,85 +88,87 @@ class PypePeer(object):
 
         for conn in read_lst:
             if conn.type == socket.SOCK_STREAM:
-                data = conn.recv(PypePeer.MAX_RECV_SIZE)
+                raw_data = conn.recv(PypePeer.MAX_RECV_SIZE)
             else:
-                data, addr = conn.recvfrom(PypePeer.MAX_RECV_SIZE)
+                raw_data, addr = conn.recvfrom(PypePeer.MAX_RECV_SIZE)
 
             # Getting current app references
             app = App.get_running_app()
             root = app.root_sm.current_screen
 
             # Parsing JSON data
-            data = json.loads(data)
+            data_lst = self.get_jsons(raw_data)
 
-            # GUI terminated
-            if data['type'] == 'terminate':
-                self.server_conn.close()
-                self.gui_evt_conn.close()
-                sys.exit()
+            # Handling messages
+            for data in data_lst:
+                # GUI terminated
+                if data['type'] == 'terminate':
+                    self.server_conn.close()
+                    self.gui_evt_conn.close()
+                    sys.exit()
 
-            # Join request/response
-            if data['type'] == 'join':
-                if data['subtype'] == 'request':
-                    self.task_lst.append(Task(self.server_conn, {
-                        'type': 'join',
-                        'username': data['username']
-                    }))
+                # Join request/response
+                if data['type'] == 'join':
+                    if data['subtype'] == 'request':
+                        self.task_lst.append(Task(self.server_conn, {
+                            'type': 'join',
+                            'username': data['username']
+                        }))
 
-                elif data['subtype'] == 'response':
-                    if data['status'] == 'ok':
-                        self.logged_in = True
-                        app.switch_to_main_screen(data['username'], data[
-                                                  'user_info_lst'], data['call_info_lst'])
-                    else:
-                        root.add_bottom_lbl('Username already exists')
-
-            # User update
-            elif data['type'] == 'user_update':
-                root.user_layout.update(data['subtype'], data['username'])
-
-            # Call update
-            elif data['type'] == 'call_update':
-                root.call_layout.update(
-                    data['mode'], data['master'], **data['info'])
-
-            # Call request/response
-            elif data['type'] == 'call':
-                if data['subtype'] == 'request':
-                    if not self.call_block:
-                        self.call_block = True
-                        if root.user_layout.user_slot_dct[data['callee']].status == 'available':
-                            type = 0
-                            self.task_lst.append(Task(self.server_conn, {
-                                'type': 'call',
-                                'subtype': 'request',
-                                'callee': data['callee']
-                            }))
+                    elif data['subtype'] == 'response':
+                        if data['status'] == 'ok':
+                            self.logged_in = True
+                            app.switch_to_main_screen(data['username'], data[
+                                                      'user_info_lst'], data['call_info_lst'])
                         else:
-                            type = 1
-                        root.add_footer_widget(type, data['callee'])
+                            root.add_bottom_lbl('Username already exists')
 
-                elif data['subtype'] == 'participate':
-                    self.call_block = True
-                    root.add_footer_widget(2, data['caller'])
+                # User update
+                elif data['type'] == 'user_update':
+                    root.user_layout.update(data['subtype'], data['username'])
 
-                elif data['subtype'] == 'response':
-                    if data['status'] == 'reject':
-                        self.call_block = False
+                # Call update
+                elif data['type'] == 'call_update':
+                    root.call_layout.update(
+                        data['subtype'], data['master'], **data['info'])
+
+                # Call request/response
+                elif data['type'] == 'call':
+                    if data['subtype'] == 'request':
+                        if not self.call_block:
+                            self.call_block = True
+                            if root.user_layout.user_slot_dct[data['callee']].status == 'available':
+                                type = 0
+                                self.task_lst.append(Task(self.server_conn, {
+                                    'type': 'call',
+                                    'subtype': 'request',
+                                    'callee': data['callee']
+                                }))
+                            else:
+                                type = 1
+                            root.add_footer_widget(type, data['callee'])
+
+                    elif data['subtype'] == 'participate':
+                        self.call_block = True
+                        root.add_footer_widget(2, data['caller'])
+
+                    elif data['subtype'] == 'response':
+                        if data['status'] == 'reject':
+                            self.call_block = False
+                        self.task_lst.append(Task(self.server_conn, {
+                            'type': 'call',
+                            'subtype': 'callee_response',
+                            'caller': data['caller'],
+                            'status': data['status']
+                        }))
                         root.remove_footer_widget()
-                    self.task_lst.append(Task(self.server_conn, {
-                        'type': 'call',
-                        'subtype': 'callee_response',
-                        'caller': data['caller'],
-                        'status': data['status']
-                    }))
-                    
-                elif data['subtype'] == 'callee_response':
-                    if data['status'] == 'accept':
-                        pass  # (Change to something meaningful in the future)
-                    else:
-                        self.call_block = False
-                        root.add_footer_widget(3, None)
+
+                    elif data['subtype'] == 'callee_response':
+                        if data['status'] == 'accept':
+                            root.add_footer_widget(4)
+                        else:
+                            self.call_block = False
+                            root.add_footer_widget(3, None)
 
     def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
@@ -178,3 +181,27 @@ class PypePeer(object):
             if task.conn in write_lst:
                 task.send_msg()
                 self.task_lst.remove(task)
+
+    def get_jsons(self, raw_data):
+        """Retreives JSON objects string.
+         and parses it.
+
+        Args:
+            raw_data (str): Data to parse.
+
+        Returns:
+            list: Parsed JSON objects list.
+        """
+
+        decoder = json.JSONDecoder()
+        json_lst = []
+
+        while True:
+            try:
+                json_obj, end_index = decoder.raw_decode(raw_data)
+                json_lst.append(json_obj)
+                raw_data = raw_data[end_index:]
+            except ValueError:
+                break
+
+        return json_lst

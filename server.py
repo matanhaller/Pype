@@ -89,12 +89,12 @@ class PypeServer(object):
                 self.logger.info('{} connected.'.format(addr))
             else:
                 if conn.type == socket.SOCK_STREAM:
-                    data = conn.recv(PypeServer.MAX_RECV_SIZE)
+                    raw_data = conn.recv(PypeServer.MAX_RECV_SIZE)
                 else:
-                    data, addr = conn.recvfrom(PypeServer.MAX_RECV_SIZE)
+                    raw_data, addr = conn.recvfrom(PypeServer.MAX_RECV_SIZE)
 
                 # Closing socket if disconnected
-                if not data:
+                if not raw_data:
                     user = self.get_user_from_conn(conn)
                     if user:
                         self.logger.info('{} left.'.format(user.name))
@@ -109,93 +109,101 @@ class PypeServer(object):
                     conn.close()
                 else:
                     # Parsing JSON data
-                    data = json.loads(data)
+                    data_lst = self.get_jsons(raw_data)
 
-                    # Join request/response
-                    if data['type'] == 'join':
-                        # Checking if username already exists
-                        if data['username'] in self.user_dct:
-                            self.task_lst.append(Task(conn, {
-                                'type': 'join',
-                                'subtype': 'response',
-                                'status': 'no'
-                            }))
-                        else:
-                            self.user_dct[data['username']] = User(
-                                data['username'], conn)
-                            user_info_lst, call_info_lst = [], []
-                            for username in self.user_dct:
-                                if username != data['username']:
-                                    user_info_lst.append({
-                                        'name': username,
-                                        'status': self.user_dct[username].status
-                                    })
-                            for master in self.call_dct:
-                                call_info_lst.append({
-                                    'master': master,
-                                    'user_lst': self.call_dct[master].user_lst
-                                })
-                            self.task_lst.append(Task(conn, {
-                                'type': 'join',
-                                'subtype': 'response',
-                                'status': 'ok',
-                                'username': data['username'],
-                                'user_info_lst': user_info_lst,
-                                'call_info_lst': call_info_lst
-                            }))
-                            self.logger.info(
-                                '{} joined.'.format(data['username']))
-                            self.report_user_update('join', data['username'])
+                    # Handling messages
+                    for data in data_lst:
+                        # Join request/response
+                        if data['type'] == 'join':
+                            # Checking if username already exists
+                            if data['username'] in self.user_dct:
+                                self.task_lst.append(Task(conn, {
+                                    'type': 'join',
+                                    'subtype': 'response',
+                                    'status': 'no'
+                                }))
 
-                    # Call request/response
-                    elif data['type'] == 'call':
-                        if data['subtype'] == 'request':
-                            caller = self.get_user_from_conn(conn)
-                            for username in [caller.name, data['callee']]:
-                                self.report_user_update('status', username)
-                            self.task_lst.append(Task(self.user_dct[
-                                data['callee']].conn, {
-                                'type': 'call',
-                                'subtype': 'participate',
-                                'caller': caller.name
-                            }))
-                        elif data['subtype'] == 'callee_response':
-                            caller = data['caller']
-                            callee = self.get_user_from_conn(conn)
-                            response_msg = {
-                                'type': 'call',
-                                'subtype': 'callee_response',
-                                'status': data['status']
-                            }
-                            if data['status'] == 'accept':
-                                if self.user_dct[caller].call:
-                                    call = self.user_dct[caller].call
-                                    call.user_join(callee)
-                                else:
-                                    # Creating new call
-                                    call = Call([caller, callee.name], caller,
-                                                self.get_multicast_addr(),
-                                                self.get_multicast_addr(),
-                                                self.get_multicast_addr())
-                                    self.user_dct[caller].call = call
-                                    self.call_dct[caller] = call
-                                    self.report_call_update(
-                                        caller, 'call_add', user_lst=call.user_lst)
-                                self.user_dct[caller].call = call
-                                # Adding addresses to response message
-                                response_msg['addrs'] = {
-                                    'audio': call.audio_addr,
-                                    'video': call.video_addr,
-                                    'chat': call.chat_addr
-                                }
-                                self.task_lst.append(
-                                    Task(conn, response_msg))
                             else:
-                                callee = self.get_user_from_conn(conn)
-                                for username in [callee.name, data['caller']]:
+                                self.user_dct[data['username']] = User(
+                                    data['username'], conn)
+                                user_info_lst, call_info_lst = [], []
+                                for username in self.user_dct:
+                                    if username != data['username']:
+                                        user_info_lst.append({
+                                            'name': username,
+                                            'status': self.user_dct[username].status
+                                        })
+                                for master in self.call_dct:
+                                    call_info_lst.append({
+                                        'master': master,
+                                        'user_lst': self.call_dct[master].user_lst
+                                    })
+                                self.task_lst.append(Task(conn, {
+                                    'type': 'join',
+                                    'subtype': 'response',
+                                    'status': 'ok',
+                                    'username': data['username'],
+                                    'user_info_lst': user_info_lst,
+                                    'call_info_lst': call_info_lst
+                                }))
+                                self.logger.info(
+                                    '{} joined.'.format(data['username']))
+                                self.report_user_update(
+                                    'join', data['username'])
+
+                        # Call request/response
+                        elif data['type'] == 'call':
+                            if data['subtype'] == 'request':
+                                caller = self.get_user_from_conn(conn)
+                                for username in [caller.name, data['callee']]:
                                     self.report_user_update('status', username)
-                            self.task_lst.append(
-                                Task(self.user_dct[caller].conn, response_msg))
+                                self.task_lst.append(Task(self.user_dct[
+                                    data['callee']].conn, {
+                                    'type': 'call',
+                                    'subtype': 'participate',
+                                    'caller': caller.name
+                                }))
+
+                            elif data['subtype'] == 'callee_response':
+                                caller = data['caller']
+                                callee = self.get_user_from_conn(conn)
+                                response_msg = {
+                                    'type': 'call',
+                                    'subtype': 'callee_response',
+                                    'status': data['status']
+                                }
+                                if data['status'] == 'accept':
+                                    if self.user_dct[caller].call:
+                                        call = self.user_dct[caller].call
+                                        call.user_join(callee)
+                                    else:
+                                        # Creating new call
+                                        call = Call([caller, callee.name], caller,
+                                                    self.get_multicast_addr(),
+                                                    self.get_multicast_addr(),
+                                                    self.get_multicast_addr())
+                                        self.user_dct[caller].call = call
+                                        self.call_dct[caller] = call
+                                        self.report_call_update(
+                                            caller, 'call_add', user_lst=call.user_lst)
+                                    self.user_dct[caller].call = call
+                                    # Adding addresses to response message
+                                    response_msg['addrs'] = {
+                                        'audio': call.audio_addr,
+                                        'video': call.video_addr,
+                                        'chat': call.chat_addr
+                                    }
+                                    self.logger.info('Call started, participants: {}'.format(
+                                        ', '.join(call.user_lst)))
+                                    self.task_lst.append(
+                                        Task(conn, response_msg))
+                                else:
+                                    callee = self.get_user_from_conn(conn)
+                                    for username in [callee.name, data['caller']]:
+                                        self.report_user_update(
+                                            'status', username)
+                                self.task_lst.append(
+                                    Task(self.user_dct[caller].conn, response_msg))
 
     def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
@@ -208,6 +216,30 @@ class PypeServer(object):
             if task.conn in write_lst:
                 task.send_msg()
                 self.task_lst.remove(task)
+
+    def get_jsons(self, raw_data):
+        """Retreives JSON objects string.
+         and parses it.
+
+        Args:
+            raw_data (str): Data to parse.
+
+        Returns:
+            list: Parsed JSON objects list.
+        """
+
+        decoder = json.JSONDecoder()
+        json_lst = []
+
+        while True:
+            try:
+                json_obj, end_index = decoder.raw_decode(raw_data)
+                json_lst.append(json_obj)
+                raw_data = raw_data[end_index:]
+            except ValueError:
+                break
+
+        return json_lst
 
     def get_user_from_conn(self, conn):
         """Retreives user corresponding to connection (if exists).
@@ -255,8 +287,8 @@ class PypeServer(object):
         for active_user in self.user_dct:
             self.task_lst.append(Task(self.user_dct[active_user].conn, {
                 'type': 'call_update',
+                'subtype': mode,
                 'master': master,
-                'mode': mode,
                 'info': kwargs
             }))
 
