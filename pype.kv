@@ -77,7 +77,6 @@
 	Button:
 		size_hint_x: 0.2
 		text: 'Join'
-		font_size: 18
 
 <UserLayout>:
 	orientation: 'vertical'
@@ -128,3 +127,19 @@
 		size_hint_x: 0.2
 		text: 'Reject'
 		on_press: root.on_call_btn_press('reject')
+
+<SessionDisplay>:
+	size_hint_x: 0.7
+	Label:
+		text: 'I\'m in a call'
+
+<SessionFooter>:
+	size_hint_y: 0.1
+	orientation: 'horizontal'
+	Label:
+		id: counter
+		text: '00:00'
+	Button:
+		text: 'Statistics'
+	Button:
+		text: 'End call'
