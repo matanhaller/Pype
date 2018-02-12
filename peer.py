@@ -91,6 +91,10 @@ class PypePeer(object):
             else:
                 data, addr = conn.recvfrom(PypePeer.MAX_RECV_SIZE)
 
+            # Getting current app references
+            app = App.get_running_app()
+            root = app.root_sm.current_screen
+
             # Parsing JSON data
             data = json.loads(data)
 
@@ -107,36 +111,30 @@ class PypePeer(object):
                         'type': 'join',
                         'username': data['username']
                     }))
+
                 elif data['subtype'] == 'response':
                     if data['status'] == 'ok':
                         self.logged_in = True
-                        self.schedule_gui_evt(App.get_running_app().switch_to_main_screen, data[
-                            'username'], data['user_info_lst'], data['call_info_lst'])
-
+                        app.switch_to_main_screen(data['username'], data[
+                                                  'user_info_lst'], data['call_info_lst'])
                     else:
-                        self.schedule_gui_evt(App.get_running_app().root_sm.get_screen(
-                            'entry_screen').add_bottom_lbl, 'Username already exists')
+                        root.add_bottom_lbl('Username already exists')
 
             # User update
             elif data['type'] == 'user_update':
-                self.schedule_gui_evt(App.get_running_app().root_sm.get_screen(
-                    'main_screen').user_layout.update,
-                    data['subtype'], data['username'])
+                root.user_layout.update(data['subtype'], data['username'])
 
             # Call update
             elif data['type'] == 'call_update':
-                self.schedule_gui_evt(App.get_running_app().root_sm.get_screen(
-                    'main_screen').call_layout.update, data['mode'], data['master'],
-                    **data['info'])
+                root.call_layout.update(
+                    data['mode'], data['master'], **data['info'])
 
             # Call request/response
             elif data['type'] == 'call':
                 if data['subtype'] == 'request':
                     if not self.call_block:
                         self.call_block = True
-                        app = App.get_running_app()
-                        main_screen = app.root_sm.get_screen('main_screen')
-                        if main_screen.user_layout.user_slot_dct[data['callee']].status == 'available':
+                        if root.user_layout.user_slot_dct[data['callee']].status == 'available':
                             type = 0
                             self.task_lst.append(Task(self.server_conn, {
                                 'type': 'call',
@@ -145,31 +143,29 @@ class PypePeer(object):
                             }))
                         else:
                             type = 1
-                        self.schedule_gui_evt(
-                            main_screen.add_footer_widget, type, data['callee'])
+                        root.add_footer_widget(type, data['callee'])
 
                 elif data['subtype'] == 'participate':
                     self.call_block = True
-                    self.schedule_gui_evt(App.get_running_app().root_sm.get_screen(
-                        'main_screen').add_footer_widget, 2, data['caller'])
+                    root.add_footer_widget(2, data['caller'])
+
                 elif data['subtype'] == 'response':
                     if data['status'] == 'reject':
                         self.call_block = False
-                        self.schedule_gui_evt(App.get_running_app().root_sm.get_screen(
-                            'main_screen').remove_footer_widget)
+                        root.remove_footer_widget()
                     self.task_lst.append(Task(self.server_conn, {
                         'type': 'call',
                         'subtype': 'callee_response',
                         'caller': data['caller'],
                         'status': data['status']
                     }))
+                    
                 elif data['subtype'] == 'callee_response':
                     if data['status'] == 'accept':
                         pass  # (Change to something meaningful in the future)
                     else:
                         self.call_block = False
-                        self.schedule_gui_evt(App.get_running_app().root_sm.get_screen(
-                            'main_screen').add_footer_widget, 3, None)
+                        root.add_footer_widget(3, None)
 
     def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
@@ -182,14 +178,3 @@ class PypePeer(object):
             if task.conn in write_lst:
                 task.send_msg()
                 self.task_lst.remove(task)
-
-    def schedule_gui_evt(self, evt, *args, **kwargs):
-        """Schedules a function to be run at Kivy mainloop.
-
-        Args:
-            evt (function): function to be scheduled.
-            *args: Arguments that function gets.
-            **kwargs: Keyword arguments that function gets.
-        """
-
-        Clock.schedule_once(partial(evt, *args, **kwargs), 0)
