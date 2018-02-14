@@ -6,7 +6,7 @@ import socket
 import select
 import json
 import sys
-from functools import partial
+import struct
 
 from kivy.app import App
 from kivy.clock import Clock
@@ -21,20 +21,24 @@ class PypePeer(object):
     """App peer class.
 
     Attributes:
+        audio_conn (socket.socket): UDP connection user for audio transmission.
         call_block (bool): Blocks user from calling other users when true.
+        chat_conn (socket.socket): UDP connection user for chat messaging.
         conn_lst (list): Active connections.
         gui_evt_conn (socket.socket): UDP connection with GUI component of app.
         in_call (bool): Whether the user is in a call.
         logged_in (bool): Whether the peer has logged as a user.
         MAX_RECV_SIZE (int): Maximum number of bytes to receive at once. (static)
-        recv_buf (TYPE): Description
+        MULTICAST_PORT (int): Port for multicast communication.
         SERVER_ADDR (tuple): Server address info. (static)
         server_conn (socket.socket): Connection with server.
         task_lst (list): List of all pending tasks.
+        video_conn (socket.socket): UDP connection user for video transmission.
     """
 
     SERVER_ADDR = ('10.0.0.8', 5050)
     MAX_RECV_SIZE = 65536
+    MULTICAST_PORT = 8192
 
     def __init__(self):
         """Constructor method.
@@ -165,10 +169,26 @@ class PypePeer(object):
 
                     elif data['subtype'] == 'callee_response':
                         if data['status'] == 'accept':
-                            root.add_footer_widget(4)
+                            if self.in_call:
+                                pass
+                            else:
+                                self.in_call = True
+                                root.add_footer_widget(4)
+                                root.switch_to_session_layout(
+                                    self.call_dct[data['master']].user_lst, data['master'])
+                                # Creating multicast connections
+                                addrs = data['addrs']
+                                self.audio_conn = self.create_multicast_conn(addrs[
+                                                                             'audio'])
+                                self.video_conn = self.create_multicast_conn(addrs[
+                                                                             'video'])
+                                self.chat_conn = self.create_multicast_conn(addrs[
+                                                                            'chat'])
+                                for conn in [self.audio_conn, self.video_conn, self.chat_conn]:
+                                    self.conn_lst.append(conn)
                         else:
-                            self.call_block = False
                             root.add_footer_widget(3, None)
+                        self.call_block = False
 
     def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
@@ -183,8 +203,7 @@ class PypePeer(object):
                 self.task_lst.remove(task)
 
     def get_jsons(self, raw_data):
-        """Retreives JSON objects string.
-         and parses it.
+        """Retreives JSON objects string and parses it.
 
         Args:
             raw_data (str): Data to parse.
@@ -205,3 +224,30 @@ class PypePeer(object):
                 break
 
         return json_lst
+
+    def create_multicast_conn(self, addr):
+        """Creates UDP socket and adds it to multicast group.
+
+        Args:
+            addr (str): IP address of multicast group.
+
+        Returns:
+            socket.socket: UDP socket connected to multicast group.
+        """
+
+        # Creating socket object and binding to designated port
+        conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        conn.bind(('', PypePeer.MULTICAST_PORT))
+
+        # Joining multicast group
+        byte_addr = socket.inet_aton(addr)
+        group_info = struct.pack('4sL', byte_addr, socket.INADDR_ANY)
+        conn.setsockopt(socket.IPPROTO_IP,
+                        socket.IP_ADD_MEMBERSHIP, group_info)
+
+        # Setting message TTL to 1 i.e. messages stay in local network
+        ttl = struct.pack('b', 1)
+        conn.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
+
+        return conn

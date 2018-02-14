@@ -22,7 +22,7 @@ from peer import PypePeer
 class EntryScreen(Screen):
 
     """Entry screen class (see .kv file for structure).
-
+    
     Attributes:
         bottom_lbl (Label): Bottom label to be added
          (when username is invalid or taken).
@@ -60,7 +60,7 @@ class EntryScreen(Screen):
     @mainthread
     def add_bottom_lbl(self, msg):
         """Adds bottom label to entry screen.
-
+        
         Args:
             msg (str): The message to be shown in the label.
         """
@@ -76,19 +76,23 @@ class EntryScreen(Screen):
 class MainScreen(Screen):
 
     """Main screen class (see .kv file for structure).
-
+    
     Attributes:
         call_layout (CallLayout): Layout of all active calls.
         footer_widget (Widget): Widget that's added to the bottom of the screen
          when necessary.
         remove_widget_evt (TYPE): Description
+        session_layout (TYPE): Description
         user_layout (UserLayout): Layout of all online users.
         username (str): Username.
+    
+    Deleted Attributes:
+        session_display (TYPE): Description
     """
 
     def __init__(self, username, user_info_lst, call_info_lst):
         """Constructor method
-
+        
         Args:
             username (str): Username of current user.
             user_info_lst (list): List of online users and their status.
@@ -105,7 +109,7 @@ class MainScreen(Screen):
     @mainthread
     def add_footer_widget(self, type, username=None):
         """Adds footer widget to main screen.
-
+        
         Args:
             type (int): Widget type:
                 0: Pending call
@@ -159,11 +163,24 @@ class MainScreen(Screen):
             self.ids.main_layout.remove_widget(self.footer_widget)
             del self.footer_widget
 
+    @mainthread
+    def switch_to_session_layout(self, user_lst, master):
+        """Removes call layout and shows session layout during active call.
+        
+        Args:
+            user_lst (list): List of users in call.
+            master (str): Call master.
+        """
+
+        self.ids.interface_layout.remove_widget(self.call_layout)
+        self.session_layout = SessionLayout(master, user_lst)
+        self.ids.interface_layout.add_widget(self.session_layout)
+
 
 class UserSlot(BoxLayout):
 
     """Slot representing an online user (see .kv file for structure).
-
+    
     Attributes:
         status (str): Whether the user is in call (available/in call).
         username (str): Username.
@@ -171,7 +188,7 @@ class UserSlot(BoxLayout):
 
     def __init__(self, username, status='available'):
         """Constructor method.
-
+        
         Args:
             username (str): Username.
             status (str): Whether the user is available (i.e. not in call).
@@ -186,7 +203,6 @@ class UserSlot(BoxLayout):
         """
 
         app = App.get_running_app()
-        screen = app.root_sm.get_screen('main_screen')
 
         app.send_gui_evt({
             'type': 'call',
@@ -209,7 +225,7 @@ class UserSlot(BoxLayout):
 class CallSlot(BoxLayout):
 
     """Slot representing an active call (see .kv file for structure).
-
+    
     Attributes:
         master (str): Username of call master.
         user_lst (list): List of all users in call.
@@ -217,7 +233,7 @@ class CallSlot(BoxLayout):
 
     def __init__(self, user_lst, master):
         """Constructor method.
-
+        
         Args:
             user_lst (list): List of users in call.
             master (str): Call master.
@@ -230,7 +246,7 @@ class CallSlot(BoxLayout):
 
     def update(self, mode, user, new_master=None):
         """Updates call slot on user join/leave.
-
+        
         Args:
             mode (str): Join/leave.
             user (str): Username that joined or left.
@@ -247,18 +263,30 @@ class CallSlot(BoxLayout):
 
         self.ids.user_lbl.text = ', '.join(self.user_lst)
 
+    def on_join_btn_press(self):
+        """Sends call request with call master to server.
+        """
+
+        app = App.get_running_app()
+
+        app.send_gui_evt({
+            'type': 'call',
+            'subtype': 'request',
+            'callee': self.master
+        })
+
 
 class UserLayout(BoxLayout):
 
     """Class representing the user layout (see .kv file for structure).
-
+    
     Attributes:
         user_slot_dct (dict): Dictionary mapping online users to their slots.
     """
 
     def __init__(self, user_info_lst):
         """Constructor method.
-
+        
         Args:
             user_info_lst (list): List of online users and their status.
         """
@@ -271,13 +299,15 @@ class UserLayout(BoxLayout):
             # Adding all slots to layout
             self.ids.user_slot_layout.add_widget(
                 self.user_slot_dct[user['name']])
+            self.ids.user_slot_layout.height += self.user_slot_dct[
+                user['name']].height
         self.ids.user_num_lbl.text = 'Online users ({})'.format(
             len(self.user_slot_dct))
 
     @mainthread
     def update(self, mode, username):
         """Updates layout on user join, leave or status change.
-
+        
         Args:
             mode (str): join/leave/status.
             username (str): Username.
@@ -288,10 +318,14 @@ class UserLayout(BoxLayout):
             self.user_slot_dct[username] = UserSlot(username)
             self.ids.user_slot_layout.add_widget(
                 self.user_slot_dct[username])
+            self.ids.user_slot_layout.height += self.user_slot_dct[
+                username].height
         # User leave
         elif mode == 'leave':
             self.ids.user_slot_layout.remove_widget(
                 self.user_slot_dct[username])
+            self.ids.user_slot_layout.height -= self.user_slot_dct[
+                username].height
             del self.user_slot_dct[username]
         # User status change
         else:
@@ -305,14 +339,14 @@ class UserLayout(BoxLayout):
 class CallLayout(BoxLayout):
 
     """Class representing the call layout (see .kv file for structure).
-
+    
     Attributes:
         call_slot_dct (dict): Dictionary mapping call masters to their respective calls.
     """
 
     def __init__(self, call_info_lst):
         """Constructor method.
-
+        
         Args:
             call_info_lst (list): List of users in each call and their masters.
         """
@@ -321,17 +355,19 @@ class CallLayout(BoxLayout):
         BoxLayout.__init__(self)
         for call in call_info_lst:
             self.call_slot_dct[call['master']] = CallSlot(
-                call['master'], call['user_lst'])
+                call['user_lst'], call['master'])
             # Adding all slots to layout
             self.ids.call_slot_layout.add_widget(
                 self.call_slot_dct[call['master']])
+            self.ids.call_slot_layout.height += self.call_slot_dct[
+                call['master']].height
         self.ids.call_num_lbl.text = 'Active calls ({})'.format(
             len(self.call_slot_dct))
 
     @mainthread
     def update(self, mode, master, **kwargs):
         """Updates layout on call or user add or remove.
-
+        
         Args:
             mode (str): call_add/call_remove/user_join/user_leave.
             master (str): Call master.
@@ -344,11 +380,15 @@ class CallLayout(BoxLayout):
                 kwargs['user_lst'], master)
             self.ids.call_slot_layout.add_widget(
                 self.call_slot_dct[master])
+            self.ids.call_slot_layout.height += self.call_slot_dct[
+                master].height
         # Removing call
         elif mode == 'call_remove':
             self.ids.call_slot_layout.remove_widget(
                 self.call_slot_dct[master])
             del self.call_slot_dct[master]
+            self.ids.call_slot_layout.height -= self.call_slot_dct[
+                master].height
         # Adding user to call
         elif mode == 'user_join':
             self.call_slot_dct[master].update('join', kwargs['user'])
@@ -364,17 +404,17 @@ class CallLayout(BoxLayout):
 class PendingCallFooter(BoxLayout):
 
     """Footer widget to be shown when a call is pending (see .kv file for structure).
-
+    
     Attributes:
         counter_update_evt (ClockEvent): Event scheduled by Kivy clock for
          updating counter every second. 
-        elapsed_time (int): Description
+        elapsed_time (int): Time elapsed since widget appearance.
         username (str): The user to call.
     """
 
     def __init__(self, username):
         """Constructor method.
-
+        
         Args:
             username (str): The user to call.
         """
@@ -397,14 +437,14 @@ class PendingCallFooter(BoxLayout):
 class CallFooter(BoxLayout):
 
     """Footer widget to be shown when a user is calling (see .kv file for structure).
-
+    
     Attributes:
         username (str): Name of calling user.
     """
 
     def __init__(self, username):
         """Constructor method.
-
+        
         Args:
             username (str): Name of calling user.
         """
@@ -414,7 +454,7 @@ class CallFooter(BoxLayout):
 
     def on_call_btn_press(self, status):
         """Notifies server that the call was accepted/rejected by user.
-
+        
         Args:
             status (str): Call status (accept/reject)
         """
@@ -428,9 +468,34 @@ class CallFooter(BoxLayout):
         })
 
 
-class SessionDisplay(BoxLayout):
+class SessionLayout(BoxLayout):
 
-    """Display user sees during a call (see .kv file for structure).
+    """Layout user sees during a call (see .kv file for structure).
+    
+    Attributes:
+        chat_layout (ChatLayout): Chat message display layout.
+        master (str): Current call master.
+        user_lst (list): List of users in call.
+    """
+
+    def __init__(self, master, user_lst):
+        """Constructor method.
+        
+        Args:
+            master (str): Current call master.
+            user_lst (list): List of users in call.
+        """
+
+        BoxLayout.__init__(self)
+        self.master = master
+        self.user_lst = user_lst
+        self.chat_layout = ChatLayout()
+        self.add_widget(self.chat_layout)
+
+
+class ChatLayout(BoxLayout):
+
+    """Chat messages display layout (see .kv file for structure).
     """
 
     pass
@@ -439,11 +504,11 @@ class SessionDisplay(BoxLayout):
 class SessionFooter(BoxLayout):
 
     """Footer displayed during a call (see .kv file for structure).
-
+    
     Attributes:
         counter_update_evt (ClockEvent): Event scheduled by Kivy clock for
          updating counter every second. 
-        elapsed_time (int): Description
+        elapsed_time (int): Time elapsed since widget appearance.
     """
 
     def __init__(self):
@@ -467,7 +532,7 @@ class SessionFooter(BoxLayout):
 class PypeApp(App):
 
     """Main app class.
-
+    
     Attributes:
         gui_evt_port (int): Port of GUI event listener.
         gui_evt_sender (socket.socket): UDP socket that sends GUI events to
@@ -483,7 +548,7 @@ class PypeApp(App):
 
     def send_gui_evt(self, data):
         """Sends GUI event to communication component of app.
-
+        
         Args:
             data (dict): Event data (in JSON format).
         """
@@ -501,7 +566,7 @@ class PypeApp(App):
 
     def build(self):
         """App builder.
-
+        
         Returns:
             ScreenManager: Root screen manager.
         """
@@ -528,7 +593,7 @@ class PypeApp(App):
     @mainthread
     def switch_to_main_screen(self, username, user_info_lst, call_info_lst):
         """Switches current screen to main screen.
-
+        
         Args:
             username (str): Username.
             user_info_lst (list): List of online users and their status.

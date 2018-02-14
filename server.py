@@ -103,6 +103,19 @@ class PypeServer(object):
                         # Notifying other users that user has left
                         self.report_user_update('leave', user.name)
 
+                        # Removing user from call if participated
+                        if user.call:
+                            call = user_call
+                            prev_master = call.master
+                            user.leave_call()
+                            self.report_call_update(
+                                call.master, 'user_leave', new_master=call.master)
+                            # Removing call if user number reduced to 1
+                            if len(call.user_lst) == 1:
+                                self.report_call_update(
+                                    call.master, 'call_remove')
+                                del self.call_dct[call.master]
+
                     self.logger.info(
                         '{} disconnected.'.format(self.conn_dct[conn]))
                     del self.conn_dct[conn]
@@ -175,7 +188,9 @@ class PypeServer(object):
                                 if data['status'] == 'accept':
                                     if self.user_dct[caller].call:
                                         call = self.user_dct[caller].call
-                                        call.user_join(callee)
+                                        callee.join_call(call)
+                                        self.report_call_update(
+                                            caller, 'user_add')
                                     else:
                                         # Creating new call
                                         call = Call([caller, callee.name], caller,
@@ -187,6 +202,7 @@ class PypeServer(object):
                                         self.report_call_update(
                                             caller, 'call_add', user_lst=call.user_lst)
                                     self.user_dct[caller].call = call
+                                    response_msg['master'] = call.master
                                     # Adding addresses to response message
                                     response_msg['addrs'] = {
                                         'audio': call.audio_addr,
