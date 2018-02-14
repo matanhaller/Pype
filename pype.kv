@@ -77,6 +77,7 @@
 	Button:
 		size_hint_x: 0.2
 		text: 'Join'
+		on_press: root.on_join_btn_press()
 
 <UserLayout>:
 	orientation: 'vertical'
@@ -88,7 +89,6 @@
 	ScrollView:
 		GridLayout:
 			id: user_slot_layout
-			size_hint_y: 0.8
 			cols: 1
 
 <CallLayout>:
@@ -101,7 +101,6 @@
 	ScrollView:
 		GridLayout:
 			id: call_slot_layout
-			size_hint_y: 0.8
 			cols: 1
 
 <PendingCallFooter>:
@@ -128,10 +127,29 @@
 		text: 'Reject'
 		on_press: root.on_call_btn_press('reject')
 
-<SessionDisplay>:
+<SessionLayout>:
 	size_hint_x: 0.7
-	Label:
-		text: 'I\'m in a call'
+	orientation: 'horizontal'
+	Label:  # (Temporary)
+		text: 'Video will be displayed here'
+
+<ChatLayout>:
+	size_hint_x: 0.3
+	orientation: 'vertical'
+	ScrollView:
+		GridLayout:
+			id: chat_msg_layout
+			cols: 1
+	BoxLayout:
+		size_hint_y: 0.1
+		orientation: 'horizontal'
+		TextInput:
+			size_hint_x: 0.8
+			multiline: False
+			hint_text: 'Enter message'
+		Button:
+			size_hint_x: 0.2
+			text: 'Send'
 
 <SessionFooter>:
 	size_hint_y: 0.1
@@ -143,3 +161,4 @@
 		text: 'Statistics'
 	Button:
 		text: 'End call'
+		on_press: root.on_end_call_btn_press()
