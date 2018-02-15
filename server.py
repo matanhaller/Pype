@@ -203,6 +203,7 @@ class PypeServer(object):
                                             caller, 'call_add', user_lst=call.user_lst)
                                     self.user_dct[caller].call = call
                                     response_msg['master'] = call.master
+                                    reponse_msg['user_lst'] = call.user_lst
                                     # Adding addresses to response message
                                     response_msg['addrs'] = {
                                         'audio': call.audio_addr,

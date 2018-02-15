@@ -21,24 +21,22 @@ class PypePeer(object):
     """App peer class.
 
     Attributes:
-        audio_conn (socket.socket): UDP connection user for audio transmission.
+        audio_conn (TYPE): Description
         call_block (bool): Blocks user from calling other users when true.
-        chat_conn (socket.socket): UDP connection user for chat messaging.
+        chat_conn (TYPE): Description
         conn_lst (list): Active connections.
         gui_evt_conn (socket.socket): UDP connection with GUI component of app.
-        in_call (bool): Whether the user is in a call.
+        session (Session): Session object of current call (defauls to None).
         logged_in (bool): Whether the peer has logged as a user.
         MAX_RECV_SIZE (int): Maximum number of bytes to receive at once. (static)
-        MULTICAST_PORT (int): Port for multicast communication.
         SERVER_ADDR (tuple): Server address info. (static)
         server_conn (socket.socket): Connection with server.
         task_lst (list): List of all pending tasks.
-        video_conn (socket.socket): UDP connection user for video transmission.
+        video_conn (TYPE): Description
     """
 
-    SERVER_ADDR = ('10.0.0.8', 5050)
+    SERVER_ADDR = ('192.168.101.122', 5050)
     MAX_RECV_SIZE = 65536
-    MULTICAST_PORT = 8192
 
     def __init__(self):
         """Constructor method.
@@ -51,7 +49,7 @@ class PypePeer(object):
         self.task_lst = []
         self.logged_in = False
         self.call_block = False
-        self.in_call = False
+        self.session = None
 
     def get_gui_evt_port(self):
         """Get random allocated port number of GUI event listener.
@@ -169,22 +167,16 @@ class PypePeer(object):
 
                     elif data['subtype'] == 'callee_response':
                         if data['status'] == 'accept':
-                            if self.in_call:
+                            if self.session:
                                 pass
                             else:
-                                self.in_call = True
+                                self.session = Session(data['master'], data['user_lst'], data[
+                                                       'addrs'], self.task_lst)
                                 root.add_footer_widget(4)
                                 root.switch_to_session_layout(
                                     self.call_dct[data['master']].user_lst, data['master'])
-                                # Creating multicast connections
-                                addrs = data['addrs']
-                                self.audio_conn = self.create_multicast_conn(addrs[
-                                                                             'audio'])
-                                self.video_conn = self.create_multicast_conn(addrs[
-                                                                             'video'])
-                                self.chat_conn = self.create_multicast_conn(addrs[
-                                                                            'chat'])
-                                for conn in [self.audio_conn, self.video_conn, self.chat_conn]:
+                                # Adding multicast addresses to connection list
+                                for conn in [self.session.audio_addr, self.session.video_addr, self.session.chat_addr]:
                                     self.conn_lst.append(conn)
                         else:
                             root.add_footer_widget(3, None)
@@ -225,6 +217,50 @@ class PypePeer(object):
 
         return json_lst
 
+
+class Session(object):
+
+    """Class used for management of current call.
+
+    Attributes:
+        audio_addr (str): Multicast address used for audio transmission.
+        audio_conn (socket.socket): UDP connection used for audio transmission.
+        chat_addr (str): Multicast address used for chat messaging.
+        chat_conn (socket.socket): UDP connection used for chat messaging.
+        master (str): Currrent call master.
+        MULTICAST_PORT (int): Port for multicast communication.
+        task_lst (list): List of tasks to send (the same one that PypePeer has).
+        user_lst (list): List of users in call.
+        video_addr (str): Multicast address used for video transmission.
+        video_conn (socket.socket): UDP connection used for video transmission.
+    """
+
+    MULTICAST_PORT = 8192
+
+    def __init__(self, master, user_lst, task_lst, **addrs):
+        """Constructor method.
+
+        Args:
+            master (str): Currrent call master.
+            user_lst (list): List of users in call.
+            task_lst (list): PypePeer task list.
+            **adrs: Dictionary of allocated multicast addresses
+        """
+
+        self.master = master
+        self.user_lst = user_lst
+
+        self.audio_addr = audio_addr
+        self.video_addr = video_addr
+        self.chat_addr = chat_addr
+
+        # Creating connections for each multicast address
+        self.audio_conn = self.create_multicast_conn(addrs['audio'])
+        self.video_conn = self.create_multicast_conn(addrs['video'])
+        self.chat_conn = self.create_multicast_conn(addrs['chat'])
+
+        self.task_lst = task_lst
+
     def create_multicast_conn(self, addr):
         """Creates UDP socket and adds it to multicast group.
 
@@ -238,7 +274,7 @@ class PypePeer(object):
         # Creating socket object and binding to designated port
         conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        conn.bind(('', PypePeer.MULTICAST_PORT))
+        conn.bind(('', Session.MULTICAST_PORT))
 
         # Joining multicast group
         byte_addr = socket.inet_aton(addr)
