@@ -4,6 +4,7 @@
 # Imports
 import json
 import socket
+import time
 
 
 class Task(object):
@@ -35,10 +36,16 @@ class Task(object):
         """Sends message to connection.
         """
 
+        # Adding timestamp if needed
+        if 'timestamp' in self.msg:
+            self.msg['timestamp'] = time.time()
+
         str_msg = json.dumps(self.msg)
+
         # For TCP sockets
         if self.conn.type == socket.SOCK_STREAM:
             self.conn.sendall(str_msg)
+
         # For UDP sockets
         else:
             self.conn.sendto(str_msg, self.dst)
