@@ -6,6 +6,8 @@ import json
 import threading
 import socket
 import re
+import time
+import datetime
 
 from kivy.app import App
 from kivy.config import Config
@@ -22,7 +24,7 @@ from peer import PypePeer
 class EntryScreen(Screen):
 
     """Entry screen class (see .kv file for structure).
-    
+
     Attributes:
         bottom_lbl (Label): Bottom label to be added
          (when username is invalid or taken).
@@ -45,22 +47,27 @@ class EntryScreen(Screen):
         app = App.get_running_app()
         username = self.ids.username_input.text
 
-        # Checking if username is valid
-        if not re.match(EntryScreen.USERNAME_REGEX, username):
+        # Checking is username is valid
+        try:
+            username.decode('ascii')
+            if not re.match(EntryScreen.USERNAME_REGEX, username):
+                err_msg = 'Invalid username'
+                self.add_bottom_lbl(err_msg)
+            else:
+                # Notifying communication component
+                app.send_gui_evt({
+                    'type': 'join',
+                    'subtype': 'request',
+                    'name': username
+                })
+        except UnicodeEncodeError:
             err_msg = 'Invalid username'
             self.add_bottom_lbl(err_msg)
-        else:
-            # Notifying communication component
-            app.send_gui_evt({
-                'type': 'join',
-                'subtype': 'request',
-                'username': username
-            })
 
     @mainthread
     def add_bottom_lbl(self, msg):
         """Adds bottom label to entry screen.
-        
+
         Args:
             msg (str): The message to be shown in the label.
         """
@@ -76,126 +83,134 @@ class EntryScreen(Screen):
 class MainScreen(Screen):
 
     """Main screen class (see .kv file for structure).
-    
+
     Attributes:
         call_layout (CallLayout): Layout of all active calls.
         footer_widget (Widget): Widget that's added to the bottom of the screen
          when necessary.
-        remove_widget_evt (TYPE): Description
-        session_layout (TYPE): Description
+        remove_widget_evt (ClockEvent): Event used for removing widgets.
+        session_footer (SessionFooter): Footer widget displayed during called.
+        session_layout (SessionLayout): Layout used for active call.
         user_layout (UserLayout): Layout of all online users.
         username (str): Username.
-    
-    Deleted Attributes:
-        session_display (TYPE): Description
     """
 
-    def __init__(self, username, user_info_lst, call_info_lst):
+    def __init__(self, **kwargs):
         """Constructor method
-        
+
         Args:
-            username (str): Username of current user.
-            user_info_lst (list): List of online users and their status.
-            call_info_lst (list): List of users in each call and their masters.
+            **kwargs: Keyword arguments supplied in dictionary form.
         """
 
-        self.username = username
-        self.user_layout = UserLayout(user_info_lst)
-        self.call_layout = CallLayout(call_info_lst)
+        self.username = kwargs['name']
+        self.user_layout = UserLayout(kwargs['user_info_lst'])
+        self.call_layout = CallLayout(kwargs['call_info_lst'])
         Screen.__init__(self, name='main_screen')
         for layout in [self.user_layout, self.call_layout]:
             self.ids.interface_layout.add_widget(layout)
 
     @mainthread
-    def add_footer_widget(self, type, username=None):
+    def add_footer_widget(self, **kwargs):
         """Adds footer widget to main screen.
-        
+
         Args:
-            type (int): Widget type:
-                0: Pending call
-                1: User not available
-                2: Call
-                3: Rejected call
-                4: Active call
-            username (str, optional): Username to be used for widget construction.
+            **kwargs: Keyword arguments supplied in dictionary form.
         """
 
         # Checking if there already exists a footer widget
         if hasattr(self, 'footer_widget'):
-            self.ids.main_layout.remove_widget(self.footer_widget)
+            self.ids.footer_layout.remove_widget(self.footer_widget)
         if hasattr(self, 'remove_widget_evt'):
             self.remove_widget_evt.cancel()
             del self.remove_widget_evt
 
         # Pending call
-        if type == 0:
-            self.footer_widget = PendingCallFooter(username)
+        if kwargs['mode'] == 'pending_call':
+            self.footer_widget = PendingCallFooter(kwargs['callee'])
+
         # User not available
-        elif type == 1:
-            self.footer_widget = Label(text='User is in call', size_hint_y=0.1)
-            Clock.schedule_once(lambda dt: self.remove_footer_widget(), 3)
+        elif kwargs['mode'] == 'user_not_available':
+            self.footer_widget = Label(text='User is in call')
+
         # Call
-        elif type == 2:
-            self.footer_widget = CallFooter(username)
+        elif kwargs['mode'] == 'call':
+            self.footer_widget = CallFooter(kwargs['caller'])
+
         # Rejected call
-        elif type == 3:
+        elif kwargs['mode'] == 'rejected_call':
             self.footer_widget = Label(
-                text='Call has been rejected by user', size_hint_y=0.1)
+                text='Call has been rejected by user')
+
+        # Scheduling widget removal if necessary
+        if kwargs['mode'] in ['user_not_available', 'rejected_call']:
             self.remove_widget_evt = Clock.schedule_once(
                 lambda dt: self.remove_footer_widget(), 3)
-        # Active call
-        elif type == 4:
-            self.footer_widget = SessionFooter()
 
-        self.ids.main_layout.add_widget(self.footer_widget)
+        self.ids.footer_layout.add_widget(self.footer_widget)
 
     @mainthread
     def remove_footer_widget(self):
         """Removes footer widget.
         """
 
-        # Checking if footer widget exists
-        if hasattr(self, 'footer_widget'):
-            # Unscheduling counter event if exists
-            if hasattr(self.footer_widget, 'counter_update_evt'):
-                self.footer_widget.counter_update_evt.cancel()
+        # Deleting event attribute if widget removal was scheduled
+        if hasattr(self, 'remove_widget_evt'):
+            del self.remove_widget_evt
 
-            self.ids.main_layout.remove_widget(self.footer_widget)
-            del self.footer_widget
+        self.ids.footer_layout.remove_widget(self.footer_widget)
+        del self.footer_widget
 
     @mainthread
-    def switch_to_session_layout(self, user_lst, master):
+    def switch_to_session_layout(self, **kwargs):
         """Removes call layout and shows session layout during active call.
-        
+
         Args:
-            user_lst (list): List of users in call.
-            master (str): Call master.
+            **kwargs: Keyword arguments supplied in dictionary form.
         """
 
+        # Removing footer widget if necessary
+        if hasattr(self, 'footer_widget'):
+            self.remove_footer_widget()
+
         self.ids.interface_layout.remove_widget(self.call_layout)
-        self.session_layout = SessionLayout(master, user_lst)
+        self.session_layout = SessionLayout(**kwargs)
         self.ids.interface_layout.add_widget(self.session_layout)
+        self.session_footer = SessionFooter()
+        self.ids.footer_layout.add_widget(self.session_footer)
+
+    @mainthread
+    def switch_to_call_layout(self, **kwargs):
+        """Removes session layout and shows call layout after call end.
+
+        Args:
+            **kwargs: Keyword arguments supplied in dictionary form.
+        """
+
+        self.ids.interface_layout.remove_widget(self.session_layout)
+        del self.session_layout
+        self.ids.footer_layout.remove_widget(self.session_footer)
+        del self.session_footer
+        self.ids.interface_layout.add_widget(self.call_layout)
 
 
 class UserSlot(BoxLayout):
 
     """Slot representing an online user (see .kv file for structure).
-    
+
     Attributes:
         status (str): Whether the user is in call (available/in call).
         username (str): Username.
     """
 
-    def __init__(self, username, status='available'):
+    def __init__(self, **kwargs):
         """Constructor method.
-        
+
         Args:
-            username (str): Username.
-            status (str): Whether the user is available (i.e. not in call).
+            **kwargs: Keyword arguments supplied in dictionary form.
         """
 
-        self.username = username
-        self.status = status
+        self.username = kwargs['name']
+        self.status = kwargs['status']
         BoxLayout.__init__(self)
 
     def on_call_btn_press(self):
@@ -207,7 +222,8 @@ class UserSlot(BoxLayout):
         app.send_gui_evt({
             'type': 'call',
             'subtype': 'request',
-            'callee': self.username
+            'callee': self.username,
+            'group': False
         })
 
     def switch_status(self):
@@ -225,41 +241,38 @@ class UserSlot(BoxLayout):
 class CallSlot(BoxLayout):
 
     """Slot representing an active call (see .kv file for structure).
-    
+
     Attributes:
         master (str): Username of call master.
         user_lst (list): List of all users in call.
     """
 
-    def __init__(self, user_lst, master):
+    def __init__(self, **kwargs):
         """Constructor method.
-        
+
         Args:
-            user_lst (list): List of users in call.
-            master (str): Call master.
+            **kwargs: Keyword arguments supplied in dictionary form.
         """
 
-        self.user_lst = user_lst
-        self.master = master
+        self.user_lst = kwargs['user_lst']
+        self.master = kwargs['master']
         BoxLayout.__init__(self)
-        self.ids.user_lbl.text = ', '.join(user_lst)
+        self.ids.user_lbl.text = ', '.join(kwargs['user_lst'])
 
-    def update(self, mode, user, new_master=None):
+    def update(self, **kwargs):
         """Updates call slot on user join/leave.
-        
+
         Args:
-            mode (str): Join/leave.
-            user (str): Username that joined or left.
-            new_master (str, optional): New call master.
+            **kwargs: Keyword arguments supplied in dictioanry form.
         """
 
-        if mode == 'join':
-            self.user_lst.append(user)
+        if kwargs['mode'] == 'join':
+            self.user_lst.append(kwargs['name'])
         else:
-            self.user_lst.remove(user)
+            self.user_lst.remove(kwargs['name'])
 
-        if new_master:
-            self.master = new_master
+        if 'new_master' in kwargs:
+            self.master = kwargs['new_master']
 
         self.ids.user_lbl.text = ', '.join(self.user_lst)
 
@@ -272,21 +285,22 @@ class CallSlot(BoxLayout):
         app.send_gui_evt({
             'type': 'call',
             'subtype': 'request',
-            'callee': self.master
+            'callee': self.master,
+            'group': True
         })
 
 
 class UserLayout(BoxLayout):
 
     """Class representing the user layout (see .kv file for structure).
-    
+
     Attributes:
         user_slot_dct (dict): Dictionary mapping online users to their slots.
     """
 
     def __init__(self, user_info_lst):
         """Constructor method.
-        
+
         Args:
             user_info_lst (list): List of online users and their status.
         """
@@ -294,42 +308,45 @@ class UserLayout(BoxLayout):
         self.user_slot_dct = {}
         BoxLayout.__init__(self)
         for user in user_info_lst:
-            self.user_slot_dct[user['name']] = UserSlot(
-                user['name'], user['status'])
+            self.user_slot_dct[user['name']] = UserSlot(**user)
+
             # Adding all slots to layout
             self.ids.user_slot_layout.add_widget(
                 self.user_slot_dct[user['name']])
             self.ids.user_slot_layout.height += self.user_slot_dct[
                 user['name']].height
+
         self.ids.user_num_lbl.text = 'Online users ({})'.format(
             len(self.user_slot_dct))
 
     @mainthread
-    def update(self, mode, username):
+    def update(self, **kwargs):
         """Updates layout on user join, leave or status change.
-        
+
         Args:
-            mode (str): join/leave/status.
-            username (str): Username.
+            **kwargs: Keyword arguments supplied in dictionary form.
         """
 
         # User join
-        if mode == 'join':
-            self.user_slot_dct[username] = UserSlot(username)
+        if kwargs['subtype'] == 'join':
+            self.user_slot_dct[kwargs['name']
+                               ] = UserSlot(**kwargs)
             self.ids.user_slot_layout.add_widget(
-                self.user_slot_dct[username])
+                self.user_slot_dct[kwargs['name']])
             self.ids.user_slot_layout.height += self.user_slot_dct[
-                username].height
+                kwargs['name']].height
+
         # User leave
-        elif mode == 'leave':
+        elif kwargs['subtype'] == 'leave':
             self.ids.user_slot_layout.remove_widget(
-                self.user_slot_dct[username])
+                self.user_slot_dct[kwargs['name']])
             self.ids.user_slot_layout.height -= self.user_slot_dct[
-                username].height
-            del self.user_slot_dct[username]
+                kwargs['name']].height
+            del self.user_slot_dct[kwargs['name']]
+
         # User status change
         else:
-            self.user_slot_dct[username].switch_status()
+            self.user_slot_dct[kwargs['name']].switch_status()
 
         # Updating online user number
         self.ids.user_num_lbl.text = 'Online users ({})'.format(
@@ -339,14 +356,14 @@ class UserLayout(BoxLayout):
 class CallLayout(BoxLayout):
 
     """Class representing the call layout (see .kv file for structure).
-    
+
     Attributes:
         call_slot_dct (dict): Dictionary mapping call masters to their respective calls.
     """
 
     def __init__(self, call_info_lst):
         """Constructor method.
-        
+
         Args:
             call_info_lst (list): List of users in each call and their masters.
         """
@@ -354,8 +371,7 @@ class CallLayout(BoxLayout):
         self.call_slot_dct = {}
         BoxLayout.__init__(self)
         for call in call_info_lst:
-            self.call_slot_dct[call['master']] = CallSlot(
-                call['user_lst'], call['master'])
+            self.call_slot_dct[call['master']] = CallSlot(**call)
             # Adding all slots to layout
             self.ids.call_slot_layout.add_widget(
                 self.call_slot_dct[call['master']])
@@ -365,37 +381,43 @@ class CallLayout(BoxLayout):
             len(self.call_slot_dct))
 
     @mainthread
-    def update(self, mode, master, **kwargs):
+    def update(self, **kwargs):
         """Updates layout on call or user add or remove.
-        
+
         Args:
-            mode (str): call_add/call_remove/user_join/user_leave.
-            master (str): Call master.
-            **kwargs: Additional necessary keyword arguments.
+            **kwargs: Keyword arguments supplied in dictionary form.
         """
 
         # Adding call
-        if mode == 'call_add':
-            self.call_slot_dct[master] = CallSlot(
-                kwargs['user_lst'], master)
+        if kwargs['subtype'] == 'call_add':
+            self.call_slot_dct[kwargs['master']] = CallSlot(**kwargs)
             self.ids.call_slot_layout.add_widget(
-                self.call_slot_dct[master])
+                self.call_slot_dct[kwargs['master']])
             self.ids.call_slot_layout.height += self.call_slot_dct[
-                master].height
+                kwargs['master']].height
+
         # Removing call
-        elif mode == 'call_remove':
+        elif kwargs['subtype'] == 'call_remove':
             self.ids.call_slot_layout.remove_widget(
-                self.call_slot_dct[master])
-            del self.call_slot_dct[master]
+                self.call_slot_dct[kwargs['master']])
             self.ids.call_slot_layout.height -= self.call_slot_dct[
-                master].height
+                kwargs['master']].height
+            del self.call_slot_dct[kwargs['master']]
+
         # Adding user to call
-        elif mode == 'user_join':
-            self.call_slot_dct[master].update('join', kwargs['user'])
+        elif kwargs['subtype'] == 'user_join':
+            self.call_slot_dct[kwargs['master']].update(
+                mode='join', **kwargs)
+
         # Removing user from call
         else:
-            self.call_slot_dct[master].update(
-                'leave', kwargs['user'], new_master=kwargs['new_master'])
+            self.call_slot_dct[kwargs['master']].update(
+                mode='leave', **kwargs)
+            if 'new_master' in kwargs:
+                call = self.call_slot_dct[kwargs['master']]
+                del self.call_slot_dct[kwargs['master']]
+                self.call_slot_dct[kwargs['new_master']] = call
+
         # Updating active call number
         self.ids.call_num_lbl.text = 'Active calls ({})'.format(
             len(self.call_slot_dct))
@@ -404,17 +426,17 @@ class CallLayout(BoxLayout):
 class PendingCallFooter(BoxLayout):
 
     """Footer widget to be shown when a call is pending (see .kv file for structure).
-    
+
     Attributes:
         counter_update_evt (ClockEvent): Event scheduled by Kivy clock for
-         updating counter every second. 
+         updating counter every second.
         elapsed_time (int): Time elapsed since widget appearance.
         username (str): The user to call.
     """
 
     def __init__(self, username):
         """Constructor method.
-        
+
         Args:
             username (str): The user to call.
         """
@@ -437,14 +459,14 @@ class PendingCallFooter(BoxLayout):
 class CallFooter(BoxLayout):
 
     """Footer widget to be shown when a user is calling (see .kv file for structure).
-    
+
     Attributes:
         username (str): Name of calling user.
     """
 
     def __init__(self, username):
         """Constructor method.
-        
+
         Args:
             username (str): Name of calling user.
         """
@@ -454,7 +476,7 @@ class CallFooter(BoxLayout):
 
     def on_call_btn_press(self, status):
         """Notifies server that the call was accepted/rejected by user.
-        
+
         Args:
             status (str): Call status (accept/reject)
         """
@@ -471,26 +493,44 @@ class CallFooter(BoxLayout):
 class SessionLayout(BoxLayout):
 
     """Layout user sees during a call (see .kv file for structure).
-    
+
     Attributes:
         chat_layout (ChatLayout): Chat message display layout.
         master (str): Current call master.
         user_lst (list): List of users in call.
     """
 
-    def __init__(self, master, user_lst):
+    def __init__(self, **kwargs):
         """Constructor method.
-        
+
         Args:
-            master (str): Current call master.
-            user_lst (list): List of users in call.
+            **kwargs: Keyword arguments supplied in dictioanry form.
         """
 
         BoxLayout.__init__(self)
-        self.master = master
-        self.user_lst = user_lst
+        self.master = kwargs['master']
+        self.user_lst = kwargs['user_lst']
         self.chat_layout = ChatLayout()
         self.add_widget(self.chat_layout)
+
+    def update(self, **kwargs):
+        """Updates session layout when changes in call occur.
+
+        Args:
+            **kwargs: Keyword arguments supplied in dictioanry form.
+        """
+
+        # User join
+        if kwargs['subtype'] == 'user_join':
+            kwargs['msg'] = '{} joined.'.format(kwargs['name'])
+            self.chat_layout.add_msg(**kwargs)
+
+        # User leave
+        elif kwargs['subtype'] == 'user_leave':
+            if 'new_master' in kwargs:
+                self.master = kwargs['new_master']
+            kwargs['msg'] = '{} left.'.format(kwargs['name'])
+            self.chat_layout.add_msg(**kwargs)
 
 
 class ChatLayout(BoxLayout):
@@ -498,16 +538,75 @@ class ChatLayout(BoxLayout):
     """Chat messages display layout (see .kv file for structure).
     """
 
-    pass
+    def __init__(self):
+        """Constructor method.
+        """
+
+        BoxLayout.__init__(self)
+
+    @mainthread
+    def add_msg(self, **kwargs):
+        """Adds message to chat layout.
+
+        Args:
+            **kwargs: Keyword arguments supplied in dictionary form.
+        """
+
+        # Building message to be added
+        msg = kwargs['msg']
+        if 'src' in kwargs:
+            msg = '[b]{}[/b]: {}'.format(kwargs['src'], msg)
+        time = datetime.datetime.fromtimestamp(
+            kwargs['timestamp']).strftime('%H:%M')
+        msg = '[{}] {}'.format(time, msg)
+
+        # Adding message to chat layout
+        msg_lbl = MessageLabel(msg)
+        self.ids.chat_msg_layout.add_widget(msg_lbl)
+        self.ids.chat_msg_layout.height += msg_lbl.height
+        self.ids.scroll_layout.scroll_to(msg_lbl)
+
+    def on_send_btn_press(self):
+        """Sends chat message to group.
+        """
+
+        # Sending chat GUI event
+        msg = self.ids.chat_input.text
+        app = App.get_running_app()
+        app.send_gui_evt({
+            'type': 'session',
+            'subtype': 'self_chat',
+            'src': app.root_sm.current_screen.username,
+            'msg': msg
+        })
+
+
+class MessageLabel(Label):
+
+    """Label for displaying chat message (see .kv file do structure).
+
+    Attributes:
+        msg (str): Chat message
+    """
+
+    def __init__(self, msg):
+        """Constructor method.
+
+        Args:
+            msg (str): Chat message
+        """
+
+        self.msg = msg
+        Label.__init__(self)
 
 
 class SessionFooter(BoxLayout):
 
     """Footer displayed during a call (see .kv file for structure).
-    
+
     Attributes:
         counter_update_evt (ClockEvent): Event scheduled by Kivy clock for
-         updating counter every second. 
+         updating counter every second.
         elapsed_time (int): Time elapsed since widget appearance.
     """
 
@@ -528,11 +627,21 @@ class SessionFooter(BoxLayout):
         self.ids.counter.text = '{:0=2d}:{:0=2d}'.format(
             self.elapsed_time / 60, self.elapsed_time % 60)
 
+    def on_end_call_btn_press(self):
+        """Leaves current call and notifies server.
+        """
+
+        app = App.get_running_app()
+        app.send_gui_evt({
+            'type': 'session',
+            'subtype': 'leave'
+        })
+
 
 class PypeApp(App):
 
     """Main app class.
-    
+
     Attributes:
         gui_evt_port (int): Port of GUI event listener.
         gui_evt_sender (socket.socket): UDP socket that sends GUI events to
@@ -548,7 +657,7 @@ class PypeApp(App):
 
     def send_gui_evt(self, data):
         """Sends GUI event to communication component of app.
-        
+
         Args:
             data (dict): Event data (in JSON format).
         """
@@ -566,7 +675,7 @@ class PypeApp(App):
 
     def build(self):
         """App builder.
-        
+
         Returns:
             ScreenManager: Root screen manager.
         """
@@ -591,16 +700,14 @@ class PypeApp(App):
         return self.root_sm
 
     @mainthread
-    def switch_to_main_screen(self, username, user_info_lst, call_info_lst):
+    def switch_to_main_screen(self, **kwargs):
         """Switches current screen to main screen.
-        
+
         Args:
-            username (str): Username.
-            user_info_lst (list): List of online users and their status.
-            call_info_lst (list): List of users in each call and their masters.
+            **kwargs: Keyword arguments supplied in dictionary form.
         """
 
-        main_screen = MainScreen(username, user_info_lst, call_info_lst)
+        main_screen = MainScreen(**kwargs)
         self.root_sm.switch_to(main_screen)
 
 # Running app

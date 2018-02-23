@@ -7,6 +7,7 @@ import select
 import json
 import sys
 import struct
+import time
 
 from kivy.app import App
 from kivy.clock import Clock
@@ -21,21 +22,19 @@ class PypePeer(object):
     """App peer class.
 
     Attributes:
-        audio_conn (TYPE): Description
         call_block (bool): Blocks user from calling other users when true.
-        chat_conn (TYPE): Description
         conn_lst (list): Active connections.
         gui_evt_conn (socket.socket): UDP connection with GUI component of app.
-        session (Session): Session object of current call (defauls to None).
         logged_in (bool): Whether the peer has logged as a user.
         MAX_RECV_SIZE (int): Maximum number of bytes to receive at once. (static)
         SERVER_ADDR (tuple): Server address info. (static)
         server_conn (socket.socket): Connection with server.
+        session (Session): Session object of current call (defauls to None).
+        session_buffer (list): Buffer of data yet to be updated in session.
         task_lst (list): List of all pending tasks.
-        video_conn (TYPE): Description
     """
 
-    SERVER_ADDR = ('192.168.101.122', 5050)
+    SERVER_ADDR = ('10.0.0.8', 5050)
     MAX_RECV_SIZE = 65536
 
     def __init__(self):
@@ -50,6 +49,7 @@ class PypePeer(object):
         self.logged_in = False
         self.call_block = False
         self.session = None
+        self.session_buffer = []
 
     def get_gui_evt_port(self):
         """Get random allocated port number of GUI event listener.
@@ -114,73 +114,111 @@ class PypePeer(object):
                     if data['subtype'] == 'request':
                         self.task_lst.append(Task(self.server_conn, {
                             'type': 'join',
-                            'username': data['username']
+                            'name': data['name']
                         }))
 
                     elif data['subtype'] == 'response':
                         if data['status'] == 'ok':
                             self.logged_in = True
-                            app.switch_to_main_screen(data['username'], data[
-                                                      'user_info_lst'], data['call_info_lst'])
+                            app.switch_to_main_screen(**data)
                         else:
                             root.add_bottom_lbl('Username already exists')
 
                 # User update
                 elif data['type'] == 'user_update':
-                    root.user_layout.update(data['subtype'], data['username'])
+                    root.user_layout.update(**data)
 
                 # Call update
                 elif data['type'] == 'call_update':
-                    root.call_layout.update(
-                        data['subtype'], data['master'], **data['info'])
+                    root.call_layout.update(**data)
+                    if self.session and data['master'] == self.session.master:
+                        # Closing call if necessary
+                        if data['subtype'] == 'call_remove':
+                            # Removing multicast conns from connection list
+                            for conn in [self.session.audio_conn, self.session.video_conn, self.session.chat_conn]:
+                                self.conn_lst.remove(conn)
+                            self.session = None
+                            root.switch_to_call_layout()
+                        else:
+                            if hasattr(root, 'session_layout') and data['subtype'] != 'call_add':
+                                self.session.update(**data)
+                                root.session_layout.update(**data)
+                            else:
+                                self.session_buffer.append(data)
+                            # Leaving call
+                            if data['subtype'] == 'call_remove':
+                                root.switch_to_call_layout()
 
                 # Call request/response
                 elif data['type'] == 'call':
                     if data['subtype'] == 'request':
                         if not self.call_block:
-                            self.call_block = True
-                            if root.user_layout.user_slot_dct[data['callee']].status == 'available':
-                                type = 0
+                            if not data['group'] and root.user_layout.user_slot_dct[data['callee']].status == 'in call':
+                                self.call_block = False
+                                mode = 'user_not_available'
+                            else:
+                                self.call_block = True
+                                mode = 'pending_call'
                                 self.task_lst.append(Task(self.server_conn, {
                                     'type': 'call',
                                     'subtype': 'request',
                                     'callee': data['callee']
                                 }))
-                            else:
-                                type = 1
-                            root.add_footer_widget(type, data['callee'])
+                            root.add_footer_widget(mode=mode, **data)
 
                     elif data['subtype'] == 'participate':
                         self.call_block = True
-                        root.add_footer_widget(2, data['caller'])
+                        root.add_footer_widget(mode='call', **data)
 
                     elif data['subtype'] == 'response':
                         if data['status'] == 'reject':
                             self.call_block = False
+                            root.remove_footer_widget()
                         self.task_lst.append(Task(self.server_conn, {
                             'type': 'call',
                             'subtype': 'callee_response',
                             'caller': data['caller'],
                             'status': data['status']
                         }))
-                        root.remove_footer_widget()
 
                     elif data['subtype'] == 'callee_response':
                         if data['status'] == 'accept':
-                            if self.session:
-                                pass
+                            if hasattr(root, 'session_layout'):
+                                if hasattr(root, 'footer_widget'):
+                                    root.remove_footer_widget()
                             else:
-                                self.session = Session(data['master'], data['user_lst'], data[
-                                                       'addrs'], self.task_lst)
-                                root.add_footer_widget(4)
-                                root.switch_to_session_layout(
-                                    self.call_dct[data['master']].user_lst, data['master'])
-                                # Adding multicast addresses to connection list
-                                for conn in [self.session.audio_addr, self.session.video_addr, self.session.chat_addr]:
+                                self.session = Session(
+                                    task_lst=self.task_lst, **data)
+                                root.switch_to_session_layout(**data)
+
+                                # Adding multicast conns to connection list
+                                for conn in [self.session.audio_conn, self.session.video_conn, self.session.chat_conn]:
                                     self.conn_lst.append(conn)
                         else:
-                            root.add_footer_widget(3, None)
+                            root.add_footer_widget(mode='rejected_call')
                         self.call_block = False
+
+                # Session messages
+                elif data['type'] == 'session':
+                    # Leaving call
+                    if data['subtype'] == 'leave':
+                        self.task_lst.append(Task(self.server_conn, data))
+
+                    # Sending chat message
+                    elif data['subtype'] == 'self_chat':
+                        self.session.send_chat(**data)
+
+                    # Receiving chat message
+                    elif data['subtype'] == 'chat':
+                        if data['src'] == root.username:
+                            data['src'] = 'You'
+                        root.session_layout.chat_layout.add_msg(**data)
+
+                # Updating session layout with data from buffer
+                if hasattr(root, 'session_layout'):
+                    while self.session_buffer:
+                        kwargs = self.session_buffer.pop()
+                        root.session_layout.update(**kwargs)
 
     def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
@@ -225,6 +263,7 @@ class Session(object):
     Attributes:
         audio_addr (str): Multicast address used for audio transmission.
         audio_conn (socket.socket): UDP connection used for audio transmission.
+        audio_rate (int): Audio transmission rate (measured in packet/sec).
         chat_addr (str): Multicast address used for chat messaging.
         chat_conn (socket.socket): UDP connection used for chat messaging.
         master (str): Currrent call master.
@@ -233,33 +272,52 @@ class Session(object):
         user_lst (list): List of users in call.
         video_addr (str): Multicast address used for video transmission.
         video_conn (socket.socket): UDP connection used for video transmission.
+        video_rate (int): Video transmission rate (measured in packet/sec).
     """
 
     MULTICAST_PORT = 8192
 
-    def __init__(self, master, user_lst, task_lst, **addrs):
+    def __init__(self, **kwargs):
         """Constructor method.
 
         Args:
-            master (str): Currrent call master.
-            user_lst (list): List of users in call.
-            task_lst (list): PypePeer task list.
-            **adrs: Dictionary of allocated multicast addresses
+            **kwargs: Keyword arguments supplied by dictionary.
         """
 
-        self.master = master
-        self.user_lst = user_lst
+        self.master = kwargs['master']
+        self.user_lst = kwargs['user_lst']
 
-        self.audio_addr = audio_addr
-        self.video_addr = video_addr
-        self.chat_addr = chat_addr
+        self.audio_addr = kwargs['addrs']['audio']
+        self.video_addr = kwargs['addrs']['video']
+        self.chat_addr = kwargs['addrs']['chat']
 
         # Creating connections for each multicast address
-        self.audio_conn = self.create_multicast_conn(addrs['audio'])
-        self.video_conn = self.create_multicast_conn(addrs['video'])
-        self.chat_conn = self.create_multicast_conn(addrs['chat'])
+        self.audio_conn = self.create_multicast_conn(self.audio_addr)
+        self.video_conn = self.create_multicast_conn(self.video_addr)
+        self.chat_conn = self.create_multicast_conn(self.chat_addr)
 
-        self.task_lst = task_lst
+        # Setting default audio and video  transmission rates
+        self.audio_rate = 30
+        self.video_rate = 30
+
+        self.task_lst = kwargs['task_lst']
+
+    def update(self, **kwargs):
+        """Updates session when changes in call occur.
+
+        Args:
+            **kwargs: Keyword arguments supplied in dictioanry form.
+        """
+
+        # User join
+        if kwargs['subtype'] == 'user_join':
+            self.user_lst.append(kwargs['name'])
+
+        # User leave
+        elif kwargs['subtype'] == 'user_leave':
+            self.user_lst.remove(kwargs['name'])
+            if 'new_master' in kwargs:
+                self.master = kwargs['new_master']
 
     def create_multicast_conn(self, addr):
         """Creates UDP socket and adds it to multicast group.
@@ -287,3 +345,15 @@ class Session(object):
         conn.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
 
         return conn
+
+    def send_chat(self, **kwargs):
+        """Sends chat message to call multicast chat group.
+
+        Args:
+            **kwargs: Keyword arguments supplied in dictionary form.
+        """
+
+        kwargs['subtype'] = 'chat'
+        kwargs['timestamp'] = None
+        self.task_lst.append(Task(self.chat_conn, kwargs,
+                                  (self.chat_addr, Session.MULTICAST_PORT)))
