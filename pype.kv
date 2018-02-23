@@ -35,14 +35,21 @@
 	BoxLayout:
 		id: main_layout
 		orientation: 'vertical'
-		Label:
-			size_hint_y: 0.1 
-			text: 'Welcome, ' + root.username
-			font_size: 36
 		BoxLayout:
-			id: interface_layout
+			size_hint_y: 0.9
+			orientation: 'vertical'
+			Label:
+				size_hint_y: 0.2
+				text: 'Welcome, ' + root.username
+				font_size: 36
+			BoxLayout:
+				id: interface_layout
+				orientation: 'horizontal'
+				size_hint_y: 0.8
+		BoxLayout:
+			id: footer_layout
+			size_hint_y: 0.1
 			orientation: 'horizontal'
-			size_hint_y: 0.8
 
 <UserSlot>:
 	size_hint_y: None
@@ -104,7 +111,6 @@
 			cols: 1
 
 <PendingCallFooter>:
-	size_hint_y: 0.1
 	orientation: 'horizontal'
 	Label:
 		text: 'Calling {}...'.format(root.username)
@@ -113,7 +119,6 @@
 		text: '00:00'
 
 <CallFooter>
-	size_hint_y: 0.1
 	orientation: 'horizontal'
 	Label:
 		size_hint_x: 0.6
@@ -137,6 +142,7 @@
 	size_hint_x: 0.3
 	orientation: 'vertical'
 	ScrollView:
+		id: scroll_layout
 		GridLayout:
 			id: chat_msg_layout
 			cols: 1
@@ -144,15 +150,25 @@
 		size_hint_y: 0.1
 		orientation: 'horizontal'
 		TextInput:
+			id: chat_input
 			size_hint_x: 0.8
 			multiline: False
 			hint_text: 'Enter message'
+			on_text_validate: root.on_send_btn_press()
 		Button:
 			size_hint_x: 0.2
 			text: 'Send'
+			on_press: root.on_send_btn_press()
+
+<MessageLabel>:
+	size_hint_y: None
+	font_size: 18
+	text_size: self.size
+	halign: 'left'
+	text: self.msg
+	markup: True
 
 <SessionFooter>:
-	size_hint_y: 0.1
 	orientation: 'horizontal'
 	Label:
 		id: counter
