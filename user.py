@@ -13,16 +13,15 @@ class User(object):
         status (str): Whether the user is in call (available/in call).
     """
 
-    def __init__(self, name, conn):
+    def __init__(self, **kwargs):
         """Constructor method.
 
         Args:
-            name (str): Username.
-            conn (socket.socket): Connection for communicating with user.
+            **kwargs: Keyword arguments supplied in dictionary form.
         """
 
-        self.name = name
-        self.conn = conn
+        self.name = kwargs['name']
+        self.conn = kwargs['conn']
         self.status = 'available'
         self.call = None
 
@@ -43,11 +42,12 @@ class User(object):
         """
 
         self.call = call
-        self.call.user_join(user.name)
+        call.user_join(self.name)
 
     def leave_call(self):
         """Leaves current call.
         """
 
-        self.call.user_leave(user_name)
+        call = self.call
+        call.user_leave(self.name)
         self.call = None
