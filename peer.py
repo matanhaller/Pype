@@ -8,6 +8,7 @@ import json
 import sys
 import struct
 import time
+import cv2
 
 from kivy.app import App
 from kivy.clock import Clock
@@ -137,6 +138,7 @@ class PypePeer(object):
                             # Removing multicast conns from connection list
                             for conn in [self.session.audio_conn, self.session.video_conn, self.session.chat_conn]:
                                 self.conn_lst.remove(conn)
+                            self.session.terminate()
                             self.session = None
                             root.switch_to_call_layout()
                         else:
@@ -261,21 +263,30 @@ class Session(object):
     """Class used for management of current call.
 
     Attributes:
+        AUDIO (int): Audio transmission mode. (static)
         audio_addr (str): Multicast address used for audio transmission.
         audio_conn (socket.socket): UDP connection used for audio transmission.
         audio_rate (int): Audio transmission rate (measured in packet/sec).
+        audio_seq (int): Audio packet sequence number.
+        cap (cv2.VideoCapture): Webcam video capture object.
         chat_addr (str): Multicast address used for chat messaging.
         chat_conn (socket.socket): UDP connection used for chat messaging.
         master (str): Currrent call master.
-        MULTICAST_PORT (int): Port for multicast communication.
+        MULTICAST_PORT (int): Port for multicast communication. (static)
         task_lst (list): List of tasks to send (the same one that PypePeer has).
         user_lst (list): List of users in call.
+        VIDEO (int): Video transmission mode. (static)
         video_addr (str): Multicast address used for video transmission.
+        VIDEO_COMPRESSION_QUALITY (int): Quality of video JPEG compression. (static)
         video_conn (socket.socket): UDP connection used for video transmission.
         video_rate (int): Video transmission rate (measured in packet/sec).
+        video_seq (int): Video packet sequence number.
     """
 
     MULTICAST_PORT = 8192
+    AUDIO = 0
+    VIDEO = 1
+    VIDEO_COMPRESSION_QUALITY = 20
 
     def __init__(self, **kwargs):
         """Constructor method.
@@ -296,9 +307,14 @@ class Session(object):
         self.video_conn = self.create_multicast_conn(self.video_addr)
         self.chat_conn = self.create_multicast_conn(self.chat_addr)
 
-        # Setting default audio and video  transmission rates
+        # Setting default audio and video transmission rates and sequence nums
         self.audio_rate = 30
         self.video_rate = 30
+        self.audio_seq = 0
+        self.video_seq = 0
+
+        # Creating video capture
+        self.cap = cv2.VideoCapture(0)
 
         self.task_lst = kwargs['task_lst']
 
@@ -346,6 +362,76 @@ class Session(object):
 
         return conn
 
+    def rate_limit(self, type):
+        """Creates rate limit decorator.
+
+        Args:
+            type (int): Media type (AUDIO/VIDEO).
+
+        No Longer Returned:
+            function: Rate limit decorator.
+        """
+
+        def decorator(f):
+            """Decorator which limits rate of transmission functions.
+
+            Args:
+                f (function): Function to limit its rate.
+
+            Returns:
+                function: Wrapper function to switch the original. 
+            """
+
+            def wrapper():
+                """Wrapper function for rate limit decorator.
+                """
+
+                if type == session.AUDIO:
+                    rate = self.audio_rate
+                else:
+                    rate = self.video_rate
+                current_time = time.time()
+                if current_time - wrapper.last_call > 1.0 / rate:
+                    f()
+                    wrapper.last_call = current_time
+
+            wrapper.last_call = time.time()
+            return wrapper
+
+        return decorator
+
+    @self.rate_limit(Session.VIDEO)
+    def send_video(self):
+        """Sends video packet to multicast group.
+        """
+
+        # Capturing video frame from webcam
+        ret, frame = cap.read()
+
+        # Compressing frame using JPEG
+        encoded_frame = cv2.imencode('.jpg', frame,
+                                     [cv2.IMWRITE_JPEG_QUALITY,
+                                      Session.VIDEO_COMPRESSION_QUALITY])
+
+        # Sending video packet
+        username = App.get_running_app().root_sm.current_screen.username
+        video_msg = {
+            'type': 'Session',
+            'subtype': 'video',
+            'mode': 'content',
+            'timestamp': None,
+            'src': username,
+            'seq': self.video_seq,
+            'payload': encoded_frame.tostring()
+        }
+        self.task_lst.append(Task(self.video_conn, video_msg,
+                                  self.chat_addr, Session.MULTICAST_PORT))
+
+        # Incrementing video packet sequence number
+        if self.video_seq > sys.maxsize:
+            self.video_seq = 0
+        self.video_seq += 1
+
     def send_chat(self, **kwargs):
         """Sends chat message to call multicast chat group.
 
@@ -357,3 +443,9 @@ class Session(object):
         kwargs['timestamp'] = None
         self.task_lst.append(Task(self.chat_conn, kwargs,
                                   (self.chat_addr, Session.MULTICAST_PORT)))
+
+    def terminate(self):
+        """A series of operations to be done before session terminates.
+        """
+
+        self.cap.release()

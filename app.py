@@ -17,6 +17,7 @@ from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.widget import Widget
+from kivy.uix.behaviors import DragBehavior
 
 from peer import PypePeer
 
@@ -497,7 +498,7 @@ class SessionLayout(BoxLayout):
     Attributes:
         chat_layout (ChatLayout): Chat message display layout.
         master (str): Current call master.
-        user_lst (list): List of users in call.
+        video_layout (VideoLayout): Video capture display layout.
     """
 
     def __init__(self, **kwargs):
@@ -509,7 +510,8 @@ class SessionLayout(BoxLayout):
 
         BoxLayout.__init__(self)
         self.master = kwargs['master']
-        self.user_lst = kwargs['user_lst']
+        self.video_layout = VideoLayout(kwargs['user_lst'])
+        self.add_widget(self.video_layout)
         self.chat_layout = ChatLayout()
         self.add_widget(self.chat_layout)
 
@@ -520,17 +522,78 @@ class SessionLayout(BoxLayout):
             **kwargs: Keyword arguments supplied in dictioanry form.
         """
 
+        self.video_layout.update(**kwargs)
+
         # User join
         if kwargs['subtype'] == 'user_join':
             kwargs['msg'] = '{} joined.'.format(kwargs['name'])
-            self.chat_layout.add_msg(**kwargs)
 
         # User leave
         elif kwargs['subtype'] == 'user_leave':
             if 'new_master' in kwargs:
                 self.master = kwargs['new_master']
             kwargs['msg'] = '{} left.'.format(kwargs['name'])
-            self.chat_layout.add_msg(**kwargs)
+
+        self.chat_layout.add_msg(**kwargs)
+
+
+class VideoLayout(FloatLayout):
+
+    """Layout of all active video transmissions (see .kv file for structure).
+
+    Attributes:
+        video_display_dct (dict): Dictionary mapping username to video display.
+    """
+
+    def __init__(self, user_lst):
+        """Constructor method.
+
+        Args:
+            user_lst (list): List of users in call.
+        """
+
+        self.video_display_dct = {}
+        username = App.get_running_app().root_sm.current_screen.username
+        for user in user_lst:
+            if user != username
+            self.video_display_dct[user] = PeerVideoDisplay(user)
+
+    def update(**kwargs):
+        if kwargs['subtype'] == 'user_join':
+            video_display = PeerVideoDisplay(kwargs['name'])
+            self.video_display_dct[kwargs['name']] = video_display
+            self.ids.video_display_layout.add_widget(video_display)
+        else:
+            self.ids.video_display_layout.remove_widget(
+                self.video_display_dct[kwargs['name']])
+            del self.video_display_dct[kwargs['name']]
+
+
+class SelfVideoDisplay(Camera, DragBehavior):
+
+    """Display of self video capture (see .kv file for structure).
+    """
+
+    pass
+
+
+class PeerVideoDisplay(FloatLayout):
+
+    """Display of other peers' video capture (see .kv file for structure).
+
+    Attributes:
+        user (str): Name of user in video.
+    """
+
+    def __init__(self, user):
+        """Constructor method
+
+        Args:
+            user (str): Name of user in video.
+        """
+
+        self.user = user
+        FloatLayout.__init__(self)
 
 
 class ChatLayout(BoxLayout):

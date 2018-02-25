@@ -135,8 +135,29 @@
 <SessionLayout>:
 	size_hint_x: 0.7
 	orientation: 'horizontal'
-	Label:  # (Temporary)
-		text: 'Video will be displayed here'
+
+<VideoLayout>:
+	GridLayout:
+		id: video_display_layout
+		cols: 2
+	SelfVideoDisplay:
+
+<SelfVideoDisplay>:
+	drag_rectangle: self.x, self.y, self.width, self.height
+	size_hint: 0.25, 0.25
+	pos_hint: {'x': 0, 'y': 0}			
+
+<PeerVideoDisplay>:
+	Image:
+	Label:
+		canvas:
+			Color:
+				rgba: 0, 0, 0, 1
+			Rectangle:
+				pos: self.pos
+				size: self.size
+		size_hint: 1, 0.1
+		text: root.user
 
 <ChatLayout>:
 	size_hint_x: 0.3
