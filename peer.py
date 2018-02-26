@@ -35,7 +35,7 @@ class PypePeer(object):
         task_lst (list): List of all pending tasks.
     """
 
-    SERVER_ADDR = ('10.0.0.8', 5050)
+    SERVER_ADDR = ('192.168.101.122', 5050)
     MAX_RECV_SIZE = 65536
 
     def __init__(self):
@@ -66,10 +66,12 @@ class PypePeer(object):
         """
 
         # Connecting to server
-        try:
-            self.server_conn.connect(PypePeer.SERVER_ADDR)
-        except socket.error:
-            pass  # (Change to something meaningful in the future)
+        while True:
+            try:
+                self.server_conn.connect(PypePeer.SERVER_ADDR)
+                break
+            except socket.error:
+                continue
 
         # Peer mainloop
         while True:
@@ -106,6 +108,8 @@ class PypePeer(object):
             for data in data_lst:
                 # GUI terminated
                 if data['type'] == 'terminate':
+                    if self.session and hasattr(self.session, 'cap'):
+                        self.cap.release()
                     self.server_conn.close()
                     self.gui_evt_conn.close()
                     sys.exit()
@@ -316,6 +320,9 @@ class Session(object):
         # Creating video capture
         self.cap = cv2.VideoCapture(0)
 
+        # Limiting transmission function rates with decorators
+        self.send_video = self.rate_limit(Session.VIDEO)(self.send_video)
+
         self.task_lst = kwargs['task_lst']
 
     def update(self, **kwargs):
@@ -368,7 +375,7 @@ class Session(object):
         Args:
             type (int): Media type (AUDIO/VIDEO).
 
-        No Longer Returned:
+        Returns:
             function: Rate limit decorator.
         """
 
@@ -400,7 +407,6 @@ class Session(object):
 
         return decorator
 
-    @self.rate_limit(Session.VIDEO)
     def send_video(self):
         """Sends video packet to multicast group.
         """

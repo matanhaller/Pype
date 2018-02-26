@@ -13,11 +13,13 @@ from kivy.app import App
 from kivy.config import Config
 from kivy.clock import Clock, mainthread
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.widget import Widget
 from kivy.uix.behaviors import DragBehavior
+from kivy.uix.camera import Camera
 
 from peer import PypePeer
 
@@ -552,13 +554,16 @@ class VideoLayout(FloatLayout):
             user_lst (list): List of users in call.
         """
 
+        FloatLayout.__init__(self)
         self.video_display_dct = {}
         username = App.get_running_app().root_sm.current_screen.username
         for user in user_lst:
-            if user != username
-            self.video_display_dct[user] = PeerVideoDisplay(user)
+            if user != username:
+                self.video_display_dct[user] = PeerVideoDisplay(user)
+                self.ids.video_display_layout.add_widget(
+                    self.video_display_dct[user])
 
-    def update(**kwargs):
+    def update(self, **kwargs):
         if kwargs['subtype'] == 'user_join':
             video_display = PeerVideoDisplay(kwargs['name'])
             self.video_display_dct[kwargs['name']] = video_display
