@@ -18,7 +18,6 @@ from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.widget import Widget
-from kivy.uix.behaviors import DragBehavior
 from kivy.uix.camera import Camera
 
 from peer import PypePeer
@@ -574,7 +573,7 @@ class VideoLayout(FloatLayout):
             del self.video_display_dct[kwargs['name']]
 
 
-class SelfVideoDisplay(Camera, DragBehavior):
+class SelfVideoDisplay(Camera):
 
     """Display of self video capture (see .kv file for structure).
     """

@@ -35,7 +35,7 @@ class PypePeer(object):
         task_lst (list): List of all pending tasks.
     """
 
-    SERVER_ADDR = ('192.168.101.122', 5050)
+    SERVER_ADDR = ('10.0.0.17', 5050)
     MAX_RECV_SIZE = 65536
 
     def __init__(self):
@@ -109,7 +109,7 @@ class PypePeer(object):
                 # GUI terminated
                 if data['type'] == 'terminate':
                     if self.session and hasattr(self.session, 'cap'):
-                        self.cap.release()
+                        self.session.cap.release()
                     self.server_conn.close()
                     self.gui_evt_conn.close()
                     sys.exit()
@@ -275,8 +275,10 @@ class Session(object):
         cap (cv2.VideoCapture): Webcam video capture object.
         chat_addr (str): Multicast address used for chat messaging.
         chat_conn (socket.socket): UDP connection used for chat messaging.
+        INITIAL_RATE (int): Initial sending rate.
         master (str): Currrent call master.
         MULTICAST_PORT (int): Port for multicast communication. (static)
+        send_video (TYPE): Description
         task_lst (list): List of tasks to send (the same one that PypePeer has).
         user_lst (list): List of users in call.
         VIDEO (int): Video transmission mode. (static)
@@ -291,6 +293,7 @@ class Session(object):
     AUDIO = 0
     VIDEO = 1
     VIDEO_COMPRESSION_QUALITY = 20
+    INITIAL_RATE = 30
 
     def __init__(self, **kwargs):
         """Constructor method.
@@ -311,17 +314,12 @@ class Session(object):
         self.video_conn = self.create_multicast_conn(self.video_addr)
         self.chat_conn = self.create_multicast_conn(self.chat_addr)
 
-        # Setting default audio and video transmission rates and sequence nums
-        self.audio_rate = 30
-        self.video_rate = 30
+        # Initializing audio and video sequence numbers
         self.audio_seq = 0
         self.video_seq = 0
 
         # Creating video capture
         self.cap = cv2.VideoCapture(0)
-
-        # Limiting transmission function rates with decorators
-        self.send_video = self.rate_limit(Session.VIDEO)(self.send_video)
 
         self.task_lst = kwargs['task_lst']
 
@@ -369,11 +367,11 @@ class Session(object):
 
         return conn
 
-    def rate_limit(self, type):
+    def rate_limit(rate):
         """Creates rate limit decorator.
 
         Args:
-            type (int): Media type (AUDIO/VIDEO).
+            rate (int): Upper bound of sending rate.
 
         Returns:
             function: Rate limit decorator.
@@ -393,20 +391,18 @@ class Session(object):
                 """Wrapper function for rate limit decorator.
                 """
 
-                if type == session.AUDIO:
-                    rate = self.audio_rate
-                else:
-                    rate = self.video_rate
                 current_time = time.time()
-                if current_time - wrapper.last_call > 1.0 / rate:
+                if current_time - wrapper.last_call > 1.0 / wrapper.rate:
                     f()
                     wrapper.last_call = current_time
 
             wrapper.last_call = time.time()
+            wrapper.rate = rate
             return wrapper
 
         return decorator
 
+    @Session.rate_limit(Session.INITIAL_RATE)
     def send_video(self):
         """Sends video packet to multicast group.
         """
