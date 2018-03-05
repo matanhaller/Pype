@@ -19,6 +19,7 @@ from kivy.uix.button import Button
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.widget import Widget
 from kivy.uix.camera import Camera
+from kivy.graphics.texture import Texture
 
 from peer import PypePeer
 
@@ -563,6 +564,12 @@ class VideoLayout(FloatLayout):
                     self.video_display_dct[user])
 
     def update(self, **kwargs):
+        """Updates video layout on user join or leave.
+
+        Args:
+            **kwargs: Description
+        """
+
         if kwargs['subtype'] == 'user_join':
             video_display = PeerVideoDisplay(kwargs['name'])
             self.video_display_dct[kwargs['name']] = video_display
@@ -571,6 +578,20 @@ class VideoLayout(FloatLayout):
             self.ids.video_display_layout.remove_widget(
                 self.video_display_dct[kwargs['name']])
             del self.video_display_dct[kwargs['name']]
+
+    def update_frame(**kwargs):
+        """Updates video frame corresponding to user.
+
+        Args:
+            **kwargs: Keyword arguments supplied in dictionary form.
+        """
+
+        frame = base64.b64decode(kwargs['frame'])
+        frame_texture = Texture.create(size=frame.shape[::-1], colorfmt='bgr')
+        frame.texture.blit_buffer(
+            kwargs['frame'], colorfmt='bgr', bufferfmt='ubyte')
+        self.video_display_dct[kwargs['src']
+                               ].ids.frame.texture = frame_texturee
 
 
 class SelfVideoDisplay(Camera):
@@ -581,7 +602,7 @@ class SelfVideoDisplay(Camera):
     pass
 
 
-class PeerVideoDisplay(FloatLayout):
+class PeerVideoDisplay(BoxLayout):
 
     """Display of other peers' video capture (see .kv file for structure).
 
@@ -597,7 +618,7 @@ class PeerVideoDisplay(FloatLayout):
         """
 
         self.user = user
-        FloatLayout.__init__(self)
+        BoxLayout.__init__(self)
 
 
 class ChatLayout(BoxLayout):

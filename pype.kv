@@ -140,7 +140,12 @@
 	GridLayout:
 		id: video_display_layout
 		cols: 2
-	SelfVideoDisplay:
+		Label:
+			text: 'test'
+		Label:
+			text: 'more'
+			pos_hint: {'x': 0, 'y': 0}	
+	#SelfVideoDisplay:
 
 <SelfVideoDisplay>:
 	resolution: 640, 480
@@ -148,7 +153,10 @@
 	pos_hint: {'x': 0, 'y': 0}		
 
 <PeerVideoDisplay>:
+	orientation: 'vertical'
 	Image:
+		id: frame
+		size_hint_y: 0.9
 	Label:
 		canvas:
 			Color:
@@ -156,7 +164,7 @@
 			Rectangle:
 				pos: self.pos
 				size: self.size
-		size_hint: 1, 0.1
+		size_hint_y: 0.1
 		text: root.user
 
 <ChatLayout>:

@@ -9,6 +9,7 @@ import sys
 import struct
 import time
 import cv2
+import base64
 
 from kivy.app import App
 from kivy.clock import Clock
@@ -35,7 +36,7 @@ class PypePeer(object):
         task_lst (list): List of all pending tasks.
     """
 
-    SERVER_ADDR = ('10.0.0.17', 5050)
+    SERVER_ADDR = ('192.168.101.122', 5050)
     MAX_RECV_SIZE = 65536
 
     def __init__(self):
@@ -83,6 +84,10 @@ class PypePeer(object):
 
             # Handling tasks
             self.handle_tasks(write_lst)
+
+            # Sending audio and video if user is in session
+            if self.session:
+                self.session.send_video()
 
     def handle_readables(self, read_lst):
         """Handles all readable connections in mainloop.
@@ -210,6 +215,10 @@ class PypePeer(object):
                     if data['subtype'] == 'leave':
                         self.task_lst.append(Task(self.server_conn, data))
 
+                    # Receiving video packets
+                    elif data['subtype'] == 'video':
+                        root.session_layout.video_layout.update_frame(**data)
+
                     # Sending chat message
                     elif data['subtype'] == 'self_chat':
                         self.session.send_chat(**data)
@@ -262,6 +271,46 @@ class PypePeer(object):
         return json_lst
 
 
+def rate_limit(rate):
+    """Creates rate limit decorator.
+
+    Args:
+        rate (int): Upper bound of sending rate.
+
+    Returns:
+        function: Rate limit decorator.
+    """
+
+    def decorator(f):
+        """Decorator which limits rate of transmission functions.
+
+        Args:
+            f (function): Function to limit its rate.
+
+        Returns:
+            function: Wrapper function to switch the original. 
+        """
+
+        def wrapper(*args, **kwargs):
+            """Wrapper function for rate limit decorator.
+
+            Args:
+                *args: Positional arguments supplied in tuple form.
+                **kwargs: Keyword arguments supplied in dictionary form.
+            """
+
+            current_time = time.time()
+            if current_time - wrapper.last_call > 1.0 / wrapper.rate:
+                f(*args, **kwargs)
+                wrapper.last_call = current_time
+
+        wrapper.last_call = time.time()
+        wrapper.rate = rate
+        return wrapper
+
+    return decorator
+
+
 class Session(object):
 
     """Class used for management of current call.
@@ -270,7 +319,6 @@ class Session(object):
         AUDIO (int): Audio transmission mode. (static)
         audio_addr (str): Multicast address used for audio transmission.
         audio_conn (socket.socket): UDP connection used for audio transmission.
-        audio_rate (int): Audio transmission rate (measured in packet/sec).
         audio_seq (int): Audio packet sequence number.
         cap (cv2.VideoCapture): Webcam video capture object.
         chat_addr (str): Multicast address used for chat messaging.
@@ -278,14 +326,12 @@ class Session(object):
         INITIAL_RATE (int): Initial sending rate.
         master (str): Currrent call master.
         MULTICAST_PORT (int): Port for multicast communication. (static)
-        send_video (TYPE): Description
         task_lst (list): List of tasks to send (the same one that PypePeer has).
         user_lst (list): List of users in call.
         VIDEO (int): Video transmission mode. (static)
         video_addr (str): Multicast address used for video transmission.
         VIDEO_COMPRESSION_QUALITY (int): Quality of video JPEG compression. (static)
         video_conn (socket.socket): UDP connection used for video transmission.
-        video_rate (int): Video transmission rate (measured in packet/sec).
         video_seq (int): Video packet sequence number.
     """
 
@@ -367,53 +413,18 @@ class Session(object):
 
         return conn
 
-    def rate_limit(rate):
-        """Creates rate limit decorator.
-
-        Args:
-            rate (int): Upper bound of sending rate.
-
-        Returns:
-            function: Rate limit decorator.
-        """
-
-        def decorator(f):
-            """Decorator which limits rate of transmission functions.
-
-            Args:
-                f (function): Function to limit its rate.
-
-            Returns:
-                function: Wrapper function to switch the original. 
-            """
-
-            def wrapper():
-                """Wrapper function for rate limit decorator.
-                """
-
-                current_time = time.time()
-                if current_time - wrapper.last_call > 1.0 / wrapper.rate:
-                    f()
-                    wrapper.last_call = current_time
-
-            wrapper.last_call = time.time()
-            wrapper.rate = rate
-            return wrapper
-
-        return decorator
-
-    @Session.rate_limit(Session.INITIAL_RATE)
+    @rate_limit(INITIAL_RATE)
     def send_video(self):
         """Sends video packet to multicast group.
         """
 
         # Capturing video frame from webcam
-        ret, frame = cap.read()
+        ret, frame = self.cap.read()
 
         # Compressing frame using JPEG
-        encoded_frame = cv2.imencode('.jpg', frame,
-                                     [cv2.IMWRITE_JPEG_QUALITY,
-                                      Session.VIDEO_COMPRESSION_QUALITY])
+        ret, encoded_frame = cv2.imencode('.jpg', frame,
+                                          [cv2.IMWRITE_JPEG_QUALITY,
+                                           Session.VIDEO_COMPRESSION_QUALITY])
 
         # Sending video packet
         username = App.get_running_app().root_sm.current_screen.username
@@ -424,10 +435,10 @@ class Session(object):
             'timestamp': None,
             'src': username,
             'seq': self.video_seq,
-            'payload': encoded_frame.tostring()
+            'frame': base64.b64encode(encoded_frame.tostring())
         }
         self.task_lst.append(Task(self.video_conn, video_msg,
-                                  self.chat_addr, Session.MULTICAST_PORT))
+                                  (self.video_addr, Session.MULTICAST_PORT)))
 
         # Incrementing video packet sequence number
         if self.video_seq > sys.maxsize:
