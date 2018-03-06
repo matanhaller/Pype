@@ -36,7 +36,7 @@ class PypePeer(object):
         task_lst (list): List of all pending tasks.
     """
 
-    SERVER_ADDR = ('192.168.101.122', 5050)
+    SERVER_ADDR = ('10.0.0.17', 5050)
     MAX_RECV_SIZE = 65536
 
     def __init__(self):
@@ -154,11 +154,8 @@ class PypePeer(object):
                             if hasattr(root, 'session_layout') and data['subtype'] != 'call_add':
                                 self.session.update(**data)
                                 root.session_layout.update(**data)
-                            else:
+                            elif data['subtype'] != 'call_add':
                                 self.session_buffer.append(data)
-                            # Leaving call
-                            if data['subtype'] == 'call_remove':
-                                root.switch_to_call_layout()
 
                 # Call request/response
                 elif data['type'] == 'call':
@@ -216,8 +213,8 @@ class PypePeer(object):
                         self.task_lst.append(Task(self.server_conn, data))
 
                     # Receiving video packets
-                    elif data['subtype'] == 'video':
-                        root.session_layout.video_layout.update_frame(**data)
+                    # elif data['subtype'] == 'video':
+                        # root.session_layout.video_layout.update_frame(**data)
 
                     # Sending chat message
                     elif data['subtype'] == 'self_chat':
@@ -233,6 +230,7 @@ class PypePeer(object):
                 if hasattr(root, 'session_layout'):
                     while self.session_buffer:
                         kwargs = self.session_buffer.pop()
+                        print 'Here'
                         root.session_layout.update(**kwargs)
 
     def handle_tasks(self, write_lst):

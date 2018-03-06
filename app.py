@@ -521,7 +521,7 @@ class SessionLayout(BoxLayout):
         """Updates session layout when changes in call occur.
 
         Args:
-            **kwargs: Keyword arguments supplied in dictioanry form.
+            **kwargs: Keyword arguments supplied in dictionary form.
         """
 
         self.video_layout.update(**kwargs)
@@ -535,7 +535,7 @@ class SessionLayout(BoxLayout):
             if 'new_master' in kwargs:
                 self.master = kwargs['new_master']
             kwargs['msg'] = '{} left.'.format(kwargs['name'])
-
+        print kwargs['subtype']
         self.chat_layout.add_msg(**kwargs)
 
 
@@ -555,6 +555,7 @@ class VideoLayout(FloatLayout):
         """
 
         FloatLayout.__init__(self)
+        '''
         self.video_display_dct = {}
         username = App.get_running_app().root_sm.current_screen.username
         for user in user_lst:
@@ -562,7 +563,7 @@ class VideoLayout(FloatLayout):
                 self.video_display_dct[user] = PeerVideoDisplay(user)
                 self.ids.video_display_layout.add_widget(
                     self.video_display_dct[user])
-
+        '''
     def update(self, **kwargs):
         """Updates video layout on user join or leave.
 
@@ -570,11 +571,12 @@ class VideoLayout(FloatLayout):
             **kwargs: Description
         """
 
+        print kwargs['subtype']
         if kwargs['subtype'] == 'user_join':
             video_display = PeerVideoDisplay(kwargs['name'])
             self.video_display_dct[kwargs['name']] = video_display
             self.ids.video_display_layout.add_widget(video_display)
-        else:
+        elif kwargs['subtype'] == 'user_leave':
             self.ids.video_display_layout.remove_widget(
                 self.video_display_dct[kwargs['name']])
             del self.video_display_dct[kwargs['name']]
@@ -591,7 +593,7 @@ class VideoLayout(FloatLayout):
         frame.texture.blit_buffer(
             kwargs['frame'], colorfmt='bgr', bufferfmt='ubyte')
         self.video_display_dct[kwargs['src']
-                               ].ids.frame.texture = frame_texturee
+                               ].ids.frame.texture = frame_texture
 
 
 class SelfVideoDisplay(Camera):

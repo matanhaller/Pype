@@ -137,15 +137,21 @@
 	orientation: 'horizontal'
 
 <VideoLayout>:
+	Label:
+		text: 'testy'
 	GridLayout:
+		pos_hint: {'x': 0, 'y': 1}
 		id: video_display_layout
 		cols: 2
 		Label:
 			text: 'test'
 		Label:
-			text: 'more'
-			pos_hint: {'x': 0, 'y': 0}	
-	#SelfVideoDisplay:
+			text: 'test'
+		Label:
+			text: 'testos'
+		Label:
+			text: 'testos'
+	SelfVideoDisplay:
 
 <SelfVideoDisplay>:
 	resolution: 640, 480
@@ -154,17 +160,11 @@
 
 <PeerVideoDisplay>:
 	orientation: 'vertical'
-	Image:
-		id: frame
-		size_hint_y: 0.9
+	#Image:
+		#id: frame
+		#size_hint_y: 0.5
 	Label:
-		canvas:
-			Color:
-				rgba: 0, 0, 0, 1
-			Rectangle:
-				pos: self.pos
-				size: self.size
-		size_hint_y: 0.1
+		#size_hint_y: 0.5
 		text: root.user
 
 <ChatLayout>:
