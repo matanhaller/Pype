@@ -2,12 +2,14 @@
 """
 
 # Imports
+import numpy as np
 import json
 import threading
 import socket
 import re
 import time
 import datetime
+import base64
 
 from kivy.app import App
 from kivy.config import Config
@@ -555,7 +557,6 @@ class VideoLayout(FloatLayout):
         """
 
         FloatLayout.__init__(self)
-        '''
         self.video_display_dct = {}
         username = App.get_running_app().root_sm.current_screen.username
         for user in user_lst:
@@ -563,15 +564,14 @@ class VideoLayout(FloatLayout):
                 self.video_display_dct[user] = PeerVideoDisplay(user)
                 self.ids.video_display_layout.add_widget(
                     self.video_display_dct[user])
-        '''
+
     def update(self, **kwargs):
         """Updates video layout on user join or leave.
 
         Args:
-            **kwargs: Description
+            **kwargs: Keyword arguments supplied in dictionary form.
         """
 
-        print kwargs['subtype']
         if kwargs['subtype'] == 'user_join':
             video_display = PeerVideoDisplay(kwargs['name'])
             self.video_display_dct[kwargs['name']] = video_display
@@ -581,19 +581,24 @@ class VideoLayout(FloatLayout):
                 self.video_display_dct[kwargs['name']])
             del self.video_display_dct[kwargs['name']]
 
-    def update_frame(**kwargs):
+    def update_frame(self, **kwargs):
         """Updates video frame corresponding to user.
 
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
 
-        frame = base64.b64decode(kwargs['frame'])
-        frame_texture = Texture.create(size=frame.shape[::-1], colorfmt='bgr')
-        frame.texture.blit_buffer(
-            kwargs['frame'], colorfmt='bgr', bufferfmt='ubyte')
-        self.video_display_dct[kwargs['src']
-                               ].ids.frame.texture = frame_texture
+        username = App.get_running_app().root_sm.current_screen.username
+        if kwargs['src'] != username:
+            frame = np.fromstring(base64.b64decode(
+                kwargs['frame']), dtype=np.ubyte)
+            decoded_frame = cv2.imdecode(frame)
+            frame_texture = Texture.create(
+                size=frame.shape[::-1], colorfmt='bgr')
+            frame.texture.blit_buffer(
+                kwargs['frame'], colorfmt='bgr', bufferfmt='ubyte')
+            self.video_display_dct[kwargs['src']
+                                   ].ids.frame.texture = frame_texture
 
 
 class SelfVideoDisplay(Camera):

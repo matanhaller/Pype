@@ -138,21 +138,14 @@
 
 <VideoLayout>:
 	GridLayout:
-		pos_hint: {'x': 0, 'y': 0}
 		size_hint: 1, 1
+		pos_hint: {'x': 0, 'y': 0}
 		id: video_display_layout
 		cols: 2
-		Label:
-			text: 'test'
-		Label:
-			text: 'test'
-		Label:
-			text: 'testos'
-		Label:
-			text: 'testos'
 	SelfVideoDisplay:
 
 <SelfVideoDisplay>:
+	index: 1
 	resolution: 640, 480
 	size_hint: 0.25, 0.25
 	pos_hint: {'x': 0, 'y': 0}		

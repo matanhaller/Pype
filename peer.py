@@ -36,7 +36,7 @@ class PypePeer(object):
         task_lst (list): List of all pending tasks.
     """
 
-    SERVER_ADDR = ('10.0.0.17', 5050)
+    SERVER_ADDR = ('192.168.101.122', 5050)
     MAX_RECV_SIZE = 65536
 
     def __init__(self):
@@ -213,8 +213,8 @@ class PypePeer(object):
                         self.task_lst.append(Task(self.server_conn, data))
 
                     # Receiving video packets
-                    # elif data['subtype'] == 'video':
-                        # root.session_layout.video_layout.update_frame(**data)
+                    elif data['subtype'] == 'video':
+                        root.session_layout.video_layout.update_frame(**data)
 
                     # Sending chat message
                     elif data['subtype'] == 'self_chat':
@@ -230,7 +230,6 @@ class PypePeer(object):
                 if hasattr(root, 'session_layout'):
                     while self.session_buffer:
                         kwargs = self.session_buffer.pop()
-                        print 'Here'
                         root.session_layout.update(**kwargs)
 
     def handle_tasks(self, write_lst):
@@ -363,7 +362,8 @@ class Session(object):
         self.video_seq = 0
 
         # Creating video capture
-        self.cap = cv2.VideoCapture(0)
+        self.cap = None
+        self.cap = cv2.VideoCapture(1)
 
         self.task_lst = kwargs['task_lst']
 
@@ -418,7 +418,6 @@ class Session(object):
 
         # Capturing video frame from webcam
         ret, frame = self.cap.read()
-
         # Compressing frame using JPEG
         ret, encoded_frame = cv2.imencode('.jpg', frame,
                                           [cv2.IMWRITE_JPEG_QUALITY,
@@ -427,7 +426,7 @@ class Session(object):
         # Sending video packet
         username = App.get_running_app().root_sm.current_screen.username
         video_msg = {
-            'type': 'Session',
+            'type': 'session',
             'subtype': 'video',
             'mode': 'content',
             'timestamp': None,
