@@ -419,29 +419,30 @@ class Session(object):
 
         # Capturing video frame from webcam
         ret, frame = self.cap.read()
-        # Compressing frame using JPEG
-        ret, encoded_frame = cv2.imencode('.jpg', frame,
-                                          [cv2.IMWRITE_JPEG_QUALITY,
-                                           Session.VIDEO_COMPRESSION_QUALITY])
+        if ret:
+            # Compressing frame using JPEG
+            ret, encoded_frame = cv2.imencode('.jpg', frame,
+                                              [cv2.IMWRITE_JPEG_QUALITY,
+                                               Session.VIDEO_COMPRESSION_QUALITY])
 
-        # Sending video packet
-        username = App.get_running_app().root_sm.current_screen.username
-        video_msg = {
-            'type': 'session',
-            'subtype': 'video',
-            'mode': 'content',
-            'timestamp': None,
-            'src': username,
-            'seq': self.video_seq,
-            'frame': base64.b64encode(encoded_frame)
-        }
-        self.task_lst.append(Task(self.video_conn, video_msg,
-                                  (self.video_addr, Session.MULTICAST_PORT)))
+            # Sending video packet
+            username = App.get_running_app().root_sm.current_screen.username
+            video_msg = {
+                'type': 'session',
+                'subtype': 'video',
+                'mode': 'content',
+                'timestamp': None,
+                'src': username,
+                'seq': self.video_seq,
+                'frame': base64.b64encode(encoded_frame)
+            }
+            self.task_lst.append(Task(self.video_conn, video_msg,
+                                      (self.video_addr, Session.MULTICAST_PORT)))
 
-        # Incrementing video packet sequence number
-        if self.video_seq > sys.maxsize:
-            self.video_seq = 0
-        self.video_seq += 1
+            # Incrementing video packet sequence number
+            if self.video_seq > sys.maxsize:
+                self.video_seq = 0
+            self.video_seq += 1
 
     def send_chat(self, **kwargs):
         """Sends chat message to call multicast chat group.
@@ -459,4 +460,6 @@ class Session(object):
         """A series of operations to be done before session terminates.
         """
 
+        root = App.get_running_app().root_sm.current_screen
+        root.session_layout.video_layout.ids.self_cap.play = False
         self.cap.release()

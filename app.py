@@ -606,7 +606,7 @@ class VideoLayout(FloatLayout):
 
             # Displaying the new video frame on the correct display
             self.video_display_dct[kwargs['src']
-                                   ].frame.texture = frame_texture
+                                   ].ids.frame.texture = frame_texture
 
 
 class SelfVideoDisplay(Camera):
@@ -622,7 +622,6 @@ class PeerVideoDisplay(BoxLayout):
     """Display of other peers' video capture (see .kv file for structure).
 
     Attributes:
-        frame (Image): Video frame image.
         user (str): Name of user in video.
     """
 
@@ -633,11 +632,8 @@ class PeerVideoDisplay(BoxLayout):
             user (str): Name of user in video.
         """
 
-        BoxLayout.__init__(self)
         self.user = user
-        self.frame = Image(size_hint_y=0.9)
-        self.add_widget(self.frame)
-        self.add_widget(Label(text=self.user, size_hint_y=0.1))
+        BoxLayout.__init__(self)
 
 
 class ChatLayout(BoxLayout):
