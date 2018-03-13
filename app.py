@@ -2,7 +2,6 @@
 """
 
 # Imports
-import numpy as np
 import json
 import threading
 import socket
@@ -10,6 +9,9 @@ import re
 import time
 import datetime
 import base64
+
+import numpy as np
+import cv2
 
 from kivy.app import App
 from kivy.config import Config
@@ -21,6 +23,7 @@ from kivy.uix.button import Button
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.widget import Widget
 from kivy.uix.camera import Camera
+from kivy.uix.image import Image
 from kivy.graphics.texture import Texture
 
 from peer import PypePeer
@@ -537,7 +540,6 @@ class SessionLayout(BoxLayout):
             if 'new_master' in kwargs:
                 self.master = kwargs['new_master']
             kwargs['msg'] = '{} left.'.format(kwargs['name'])
-        print kwargs['subtype']
         self.chat_layout.add_msg(**kwargs)
 
 
@@ -581,6 +583,7 @@ class VideoLayout(FloatLayout):
                 self.video_display_dct[kwargs['name']])
             del self.video_display_dct[kwargs['name']]
 
+    @mainthread
     def update_frame(self, **kwargs):
         """Updates video frame corresponding to user.
 
@@ -590,15 +593,20 @@ class VideoLayout(FloatLayout):
 
         username = App.get_running_app().root_sm.current_screen.username
         if kwargs['src'] != username:
-            frame = np.fromstring(base64.b64decode(
-                kwargs['frame']), dtype=np.ubyte)
-            decoded_frame = cv2.imdecode(frame)
+            # Decoding JPEG frame
+            frame = base64.b64decode(kwargs['frame'])
+            frame = np.fromstring(frame, dtype='uint8')
+            decoded_frame = cv2.imdecode(frame, 1)
+            decoded_frame = cv2.flip(decoded_frame, 0)
             frame_texture = Texture.create(
-                size=frame.shape[::-1], colorfmt='bgr')
-            frame.texture.blit_buffer(
-                kwargs['frame'], colorfmt='bgr', bufferfmt='ubyte')
+                size=(decoded_frame.shape[1], decoded_frame.shape[0]),
+                colorfmt='bgr')
+            frame_texture.blit_buffer(
+                decoded_frame.tostring(), colorfmt='bgr', bufferfmt='ubyte')
+
+            # Displaying the new video frame on the correct display
             self.video_display_dct[kwargs['src']
-                                   ].ids.frame.texture = frame_texture
+                                   ].frame.texture = frame_texture
 
 
 class SelfVideoDisplay(Camera):
@@ -614,6 +622,7 @@ class PeerVideoDisplay(BoxLayout):
     """Display of other peers' video capture (see .kv file for structure).
 
     Attributes:
+        frame (Image): Video frame image.
         user (str): Name of user in video.
     """
 
@@ -624,8 +633,11 @@ class PeerVideoDisplay(BoxLayout):
             user (str): Name of user in video.
         """
 
-        self.user = user
         BoxLayout.__init__(self)
+        self.user = user
+        self.frame = Image(size_hint_y=0.9)
+        self.add_widget(self.frame)
+        self.add_widget(Label(text=self.user, size_hint_y=0.1))
 
 
 class ChatLayout(BoxLayout):

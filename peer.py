@@ -36,7 +36,7 @@ class PypePeer(object):
         task_lst (list): List of all pending tasks.
     """
 
-    SERVER_ADDR = ('192.168.101.122', 5050)
+    SERVER_ADDR = ('10.0.0.17', 5050)
     MAX_RECV_SIZE = 65536
 
     def __init__(self):
@@ -214,7 +214,9 @@ class PypePeer(object):
 
                     # Receiving video packets
                     elif data['subtype'] == 'video':
-                        root.session_layout.video_layout.update_frame(**data)
+                        if hasattr(root, 'session_layout'):
+                            root.session_layout.video_layout.update_frame(
+                                **data)
 
                     # Sending chat message
                     elif data['subtype'] == 'self_chat':
@@ -336,7 +338,7 @@ class Session(object):
     AUDIO = 0
     VIDEO = 1
     VIDEO_COMPRESSION_QUALITY = 20
-    INITIAL_RATE = 30
+    INITIAL_RATE = 24
 
     def __init__(self, **kwargs):
         """Constructor method.
@@ -362,7 +364,6 @@ class Session(object):
         self.video_seq = 0
 
         # Creating video capture
-        self.cap = None
         self.cap = cv2.VideoCapture(1)
 
         self.task_lst = kwargs['task_lst']
@@ -432,7 +433,7 @@ class Session(object):
             'timestamp': None,
             'src': username,
             'seq': self.video_seq,
-            'frame': base64.b64encode(encoded_frame.tostring())
+            'frame': base64.b64encode(encoded_frame)
         }
         self.task_lst.append(Task(self.video_conn, video_msg,
                                   (self.video_addr, Session.MULTICAST_PORT)))
