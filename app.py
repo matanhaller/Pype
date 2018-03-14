@@ -592,7 +592,7 @@ class VideoLayout(FloatLayout):
         """
 
         username = App.get_running_app().root_sm.current_screen.username
-        if kwargs['src'] != username:
+        if kwargs['src'] != username and kwargs['src'] in self.video_display_dct:
             # Decoding JPEG frame
             frame = base64.b64decode(kwargs['frame'])
             frame = np.fromstring(frame, dtype='uint8')
