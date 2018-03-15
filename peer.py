@@ -36,7 +36,7 @@ class PypePeer(object):
         task_lst (list): List of all pending tasks.
     """
 
-    SERVER_ADDR = ('10.0.0.17', 5050)
+    SERVER_ADDR = ('192.168.101.122', 5050)
     MAX_RECV_SIZE = 65536
 
     def __init__(self):
@@ -364,7 +364,7 @@ class Session(object):
         self.video_seq = 0
 
         # Creating video capture
-        self.cap = cv2.VideoCapture(1)
+        self.cap = cv2.VideoCapture(0)
 
         self.task_lst = kwargs['task_lst']
 

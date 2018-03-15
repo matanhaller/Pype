@@ -548,6 +548,8 @@ class VideoLayout(FloatLayout):
     """Layout of all active video transmissions (see .kv file for structure).
 
     Attributes:
+        show_statistics (bool): Whether to show statistics on screen.
+        statistics_dct (dict): Dictionary mapping username to statistics.
         video_display_dct (dict): Dictionary mapping username to video display.
     """
 
@@ -560,12 +562,15 @@ class VideoLayout(FloatLayout):
 
         FloatLayout.__init__(self)
         self.video_display_dct = {}
+        self.statistics_dct = {}
         username = App.get_running_app().root_sm.current_screen.username
         for user in user_lst:
             if user != username:
                 self.video_display_dct[user] = PeerVideoDisplay(user)
                 self.ids.video_display_layout.add_widget(
                     self.video_display_dct[user])
+                self.statistics_dct[user] = StatisticsLabel(latency=0)
+        self.show_statistics = False
 
     def update(self, **kwargs):
         """Updates video layout on user join or leave.
@@ -582,6 +587,20 @@ class VideoLayout(FloatLayout):
             self.ids.video_display_layout.remove_widget(
                 self.video_display_dct[kwargs['name']])
             del self.video_display_dct[kwargs['name']]
+
+    def on_statistics_btn_press(self):
+        """Shows/hides call statistics from display.
+        """
+
+        for user in self.statistics_dct:
+            if self.show_statistics:
+                self.video_display_dct[user].remove_widget(
+                    self.statistics_dct[user])
+            else:
+                self.video_display_dct[user].add_widget(
+                    self.statistics_dct[user])
+
+        self.show_statistics = not self.show_statistics
 
     @mainthread
     def update_frame(self, **kwargs):
@@ -634,6 +653,37 @@ class PeerVideoDisplay(BoxLayout):
 
         self.user = user
         BoxLayout.__init__(self)
+
+
+class StatisticsLabel(Label):
+    """Label used for displaying call statistics (see .kv file for structure).
+
+    Attributes:
+        stat_dct (dict): Dictionary mapping al statistics to their values. 
+        text (TYPE): Description
+    """
+
+    def __init__(self, **kwargs):
+        """Constructor method.
+
+        Args:
+            **kwargs: Keyword arguments supplied in dictionary form.
+        """
+
+        Label.__init__(self)
+        self.stat_dct = {}
+        self.stat_dct.update(kwargs)
+
+    def update(self, **kwargs):
+        """Updates statistics with new data.
+
+        Args:
+            **kwargs: Keyword arguments supplied in dictionary form.
+        """
+
+        self.stat_dct.update(kwargs)
+        self.text = '\n'.join(['{}: {}'.format(key, val)
+                               for key, val in self.stat_dct.items()])
 
 
 class ChatLayout(BoxLayout):
