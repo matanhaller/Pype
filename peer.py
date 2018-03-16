@@ -17,6 +17,7 @@ from kivy.clock import mainthread
 from kivy.uix.label import Label
 
 from task import Task
+from tracker import Tracker
 
 
 class PypePeer(object):
@@ -36,7 +37,7 @@ class PypePeer(object):
         task_lst (list): List of all pending tasks.
     """
 
-    SERVER_ADDR = ('192.168.101.122', 5050)
+    SERVER_ADDR = ('10.0.0.17', 5050)
     MAX_RECV_SIZE = 65536
 
     def __init__(self):
@@ -76,6 +77,11 @@ class PypePeer(object):
 
         # Peer mainloop
         while True:
+            # Getting current app references
+            app = App.get_running_app()
+            root = app.root_sm.current_screen
+
+            # Polling active connections
             read_lst, write_lst, err_lst = select.select(
                 *((self.conn_lst,) * 3))
 
@@ -85,9 +91,13 @@ class PypePeer(object):
             # Handling tasks
             self.handle_tasks(write_lst)
 
-            # Sending audio and video if user is in session
-            if self.session:
+            # Handling call procedures
+            if self.session and hasattr(root, 'session_layout'):
+                # Sending audio and video
                 self.session.send_video()
+
+                # Updating statistics on screen
+                self.session.update_statistics()
 
     def handle_readables(self, read_lst):
         """Handles all readable connections in mainloop.
@@ -214,6 +224,8 @@ class PypePeer(object):
 
                     # Receiving video packets
                     elif data['subtype'] == 'video':
+                        self.session.video_stat_dct[
+                            data['src']].update(**data)
                         if hasattr(root, 'session_layout'):
                             root.session_layout.video_layout.update_frame(
                                 **data)
@@ -318,11 +330,12 @@ class Session(object):
         AUDIO (int): Audio transmission mode. (static)
         audio_addr (str): Multicast address used for audio transmission.
         audio_conn (socket.socket): UDP connection used for audio transmission.
-        audio_seq (int): Audio packet sequence number.
+        audio_seq (int): Audio sequence number.
+        audio_stat_dct (dict): Audio statistics dictionary.
         cap (cv2.VideoCapture): Webcam video capture object.
         chat_addr (str): Multicast address used for chat messaging.
         chat_conn (socket.socket): UDP connection used for chat messaging.
-        INITIAL_RATE (int): Initial sending rate.
+        INITIAL_SENDING_RATE (int): Initial sending rate.
         master (str): Currrent call master.
         MULTICAST_PORT (int): Port for multicast communication. (static)
         task_lst (list): List of tasks to send (the same one that PypePeer has).
@@ -331,14 +344,15 @@ class Session(object):
         video_addr (str): Multicast address used for video transmission.
         VIDEO_COMPRESSION_QUALITY (int): Quality of video JPEG compression. (static)
         video_conn (socket.socket): UDP connection used for video transmission.
-        video_seq (int): Video packet sequence number.
+        video_seq (int): Video sequence number.
+        video_stat_dct (dict): Video statistics dictionary.
     """
 
     MULTICAST_PORT = 8192
     AUDIO = 0
     VIDEO = 1
     VIDEO_COMPRESSION_QUALITY = 20
-    INITIAL_RATE = 24
+    INITIAL_SENDING_RATE = 24
 
     def __init__(self, **kwargs):
         """Constructor method.
@@ -363,8 +377,12 @@ class Session(object):
         self.audio_seq = 0
         self.video_seq = 0
 
+        # Initializing audio and video statistics dictionaries
+        self.audio_stat_dct = {user: Tracker() for user in self.user_lst}
+        self.video_stat_dct = {user: Tracker() for user in self.user_lst}
+
         # Creating video capture
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(1)
 
         self.task_lst = kwargs['task_lst']
 
@@ -378,12 +396,16 @@ class Session(object):
         # User join
         if kwargs['subtype'] == 'user_join':
             self.user_lst.append(kwargs['name'])
+            self.audio_stat_dct[kwargs['name']] = Tracker()
+            self.video_stat_dct[kwargs['name']] = Tracker()
 
         # User leave
         elif kwargs['subtype'] == 'user_leave':
             self.user_lst.remove(kwargs['name'])
             if 'new_master' in kwargs:
                 self.master = kwargs['new_master']
+            del self.audio_stat_dct[kwargs['name']]
+            del self.video_stat_dct[kwargs['name']]
 
     def create_multicast_conn(self, addr):
         """Creates UDP socket and adds it to multicast group.
@@ -412,7 +434,7 @@ class Session(object):
 
         return conn
 
-    @rate_limit(INITIAL_RATE)
+    @rate_limit(INITIAL_SENDING_RATE)
     def send_video(self):
         """Sends video packet to multicast group.
         """
@@ -455,6 +477,19 @@ class Session(object):
         kwargs['timestamp'] = None
         self.task_lst.append(Task(self.chat_conn, kwargs,
                                   (self.chat_addr, Session.MULTICAST_PORT)))
+
+    @rate_limit(1)
+    def update_statistics(self):
+        """Updates statistics on screen
+        """
+
+        root = App.get_running_app().root_sm.current_screen
+        username = root.username
+        video_display_dct = root.session_layout.video_layout.video_display_dct
+        for user in self.user_lst:
+            if user != username:
+                stats = self.video_stat_dct[user].stat_dct
+                video_display_dct[user].stat_lbl.update(**stats)
 
     def terminate(self):
         """A series of operations to be done before session terminates.

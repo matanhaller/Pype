@@ -548,8 +548,7 @@ class VideoLayout(FloatLayout):
     """Layout of all active video transmissions (see .kv file for structure).
 
     Attributes:
-        show_statistics (bool): Whether to show statistics on screen.
-        statistics_dct (dict): Dictionary mapping username to statistics.
+        show_stats (bool): Whether to display statistics on screen.
         video_display_dct (dict): Dictionary mapping username to video display.
     """
 
@@ -562,15 +561,14 @@ class VideoLayout(FloatLayout):
 
         FloatLayout.__init__(self)
         self.video_display_dct = {}
-        self.statistics_dct = {}
+        self.show_stats = False
         username = App.get_running_app().root_sm.current_screen.username
         for user in user_lst:
             if user != username:
-                self.video_display_dct[user] = PeerVideoDisplay(user)
+                self.video_display_dct[
+                    user] = PeerVideoDisplay(user, self.show_stats)
                 self.ids.video_display_layout.add_widget(
                     self.video_display_dct[user])
-                self.statistics_dct[user] = StatisticsLabel(latency=0)
-        self.show_statistics = False
 
     def update(self, **kwargs):
         """Updates video layout on user join or leave.
@@ -579,28 +577,17 @@ class VideoLayout(FloatLayout):
             **kwargs: Keyword arguments supplied in dictionary form.
         """
 
+        # User join
         if kwargs['subtype'] == 'user_join':
-            video_display = PeerVideoDisplay(kwargs['name'])
+            video_display = PeerVideoDisplay(kwargs['name'], self.show_stats)
             self.video_display_dct[kwargs['name']] = video_display
             self.ids.video_display_layout.add_widget(video_display)
+
+        # User leave
         elif kwargs['subtype'] == 'user_leave':
             self.ids.video_display_layout.remove_widget(
                 self.video_display_dct[kwargs['name']])
             del self.video_display_dct[kwargs['name']]
-
-    def on_statistics_btn_press(self):
-        """Shows/hides call statistics from display.
-        """
-
-        for user in self.statistics_dct:
-            if self.show_statistics:
-                self.video_display_dct[user].remove_widget(
-                    self.statistics_dct[user])
-            else:
-                self.video_display_dct[user].add_widget(
-                    self.statistics_dct[user])
-
-        self.show_statistics = not self.show_statistics
 
     @mainthread
     def update_frame(self, **kwargs):
@@ -641,27 +628,47 @@ class PeerVideoDisplay(BoxLayout):
     """Display of other peers' video capture (see .kv file for structure).
 
     Attributes:
+        stat_lbl (Label): Label for showing call statistics.
         user (str): Name of user in video.
     """
 
-    def __init__(self, user):
+    def __init__(self, user, show_stats):
         """Constructor method
 
         Args:
+            show_stats (bool): Whether to display statistics on display.
             user (str): Name of user in video.
         """
 
         self.user = user
+        self.show_stats = show_stats
         BoxLayout.__init__(self)
+        self.stat_lbl = StatisticsLabel(latency=0)
+        if self.show_stats:
+            self.ids.display.add_widget(self.stat_lbl)
+
+    def flip_stats(self):
+        """Showing/hiding statistics label.
+        """
+
+        if not self.show_stats:
+            self.ids.display.add_widget(self.stat_lbl)
+        else:
+            self.ids.display.remove_widget(self.stat_lbl)
+
+        self.show_stats = not self.show_stats
 
 
 class StatisticsLabel(Label):
     """Label used for displaying call statistics (see .kv file for structure).
 
     Attributes:
-        stat_dct (dict): Dictionary mapping al statistics to their values. 
-        text (TYPE): Description
+        FORMAT_DCT (dict): Dictionary mapping each data type to its format.
     """
+
+    FORMAT_DCT = {'latency': lambda val: '{}ms'.format(int(val * 1000)),
+                  'loss rate': lambda val: '{}%'.format(val * 100)
+                  }
 
     def __init__(self, **kwargs):
         """Constructor method.
@@ -671,9 +678,9 @@ class StatisticsLabel(Label):
         """
 
         Label.__init__(self)
-        self.stat_dct = {}
-        self.stat_dct.update(kwargs)
+        self.update(**kwargs)
 
+    @mainthread
     def update(self, **kwargs):
         """Updates statistics with new data.
 
@@ -681,9 +688,8 @@ class StatisticsLabel(Label):
             **kwargs: Keyword arguments supplied in dictionary form.
         """
 
-        self.stat_dct.update(kwargs)
-        self.text = '\n'.join(['{}: {}'.format(key, val)
-                               for key, val in self.stat_dct.items()])
+        self.text = '\n'.join(['{}: {}'.format(key, StatisticsLabel.FORMAT_DCT[
+                              key](val)) for key, val in kwargs.items()])
 
 
 class ChatLayout(BoxLayout):
@@ -779,6 +785,18 @@ class SessionFooter(BoxLayout):
         self.elapsed_time += 1
         self.ids.counter.text = '{:0=2d}:{:0=2d}'.format(
             self.elapsed_time / 60, self.elapsed_time % 60)
+
+    def on_stat_btn_press(self):
+        """Shows/hides call statistics from display.
+        """
+
+        root = App.get_running_app().root_sm.current_screen
+        video_layout = root.session_layout.video_layout
+        video_display_dct = video_layout.video_display_dct
+
+        video_layout.show_stats = not video_layout.show_stats
+        for user in video_display_dct:
+            video_display_dct[user].flip_stats()
 
     def on_end_call_btn_press(self):
         """Leaves current call and notifies server.
