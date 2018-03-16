@@ -146,7 +146,7 @@
 		id: self_cap
 		
 <SelfVideoDisplay>:
-	index: 0
+	index: 1
 	resolution: 640, 480
 	size_hint: 0.25, 0.25
 	pos_hint: {'x': 0.75, 'y': 0}		
@@ -154,6 +154,7 @@
 <PeerVideoDisplay>:
 	orientation: 'vertical'
 	FloatLayout:
+		id: display
 		size_hint_y: 0.9
 		Image:
 			id: frame
@@ -167,14 +168,14 @@
 
 <StatisticsLabel>:
 	size_hint: 0.25, 0.25
-	pos_hint: {'x': 0.75, 'y': 0}
+	pos_hint: {'x': 0, 'y': 0}
 	color: 1, 1, 1, 1
-        canvas:
-            Color:
-                rgba: 0, 0, 0, 0
-            Rectangle:
-                pos: self.pos
-                size: self.size
+    canvas:
+        Color:
+            rgba: 0, 0, 0, 0
+        Rectangle:
+            pos: self.pos
+            size: self.size
 
 <ChatLayout>:
 	size_hint_x: 0.3
@@ -213,7 +214,7 @@
 		text: '00:00'
 	Button:
 		text: 'Statistics'
-		on_press: root.on_statistics_btn_press()
+		on_press: root.on_stat_btn_press()
 	Button:
 		text: 'End call'
 		on_press: root.on_end_call_btn_press()
