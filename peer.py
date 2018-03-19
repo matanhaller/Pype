@@ -37,7 +37,7 @@ class PypePeer(object):
         task_lst (list): List of all pending tasks.
     """
 
-    SERVER_ADDR = ('10.0.0.17', 5050)
+    SERVER_ADDR = ('10.0.0.8', 5050)
     MAX_RECV_SIZE = 65536
 
     def __init__(self):
@@ -224,8 +224,11 @@ class PypePeer(object):
 
                     # Receiving video packets
                     elif data['subtype'] == 'video':
-                        self.session.video_stat_dct[
-                            data['src']].update(**data)
+                        if self.session:
+                            username = root.username
+                            if data['src'] != username:
+                                self.session.video_stat_dct[
+                                    data['src']].update(**data)
                         if hasattr(root, 'session_layout'):
                             root.session_layout.video_layout.update_frame(
                                 **data)
@@ -462,8 +465,6 @@ class Session(object):
                                       (self.video_addr, Session.MULTICAST_PORT)))
 
             # Incrementing video packet sequence number
-            if self.video_seq > sys.maxsize:
-                self.video_seq = 0
             self.video_seq += 1
 
     def send_chat(self, **kwargs):
