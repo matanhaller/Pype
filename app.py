@@ -666,9 +666,11 @@ class StatisticsLabel(Label):
         FORMAT_DCT (dict): Dictionary mapping each data type to its format.
     """
 
-    FORMAT_DCT = {'latency': lambda val: '{}ms'.format(int(val * 1000)),
-                  'loss rate': lambda val: '{}%'.format(val * 100)
-                  }
+    FORMAT_DCT = {
+        'framerate': lambda val: '{} fps'.format(round(val, 2)),
+        'latency': lambda val: '{} ms'.format(round(val * 1000, 2)),
+        'framedrop': lambda val: '{}%'.format(round(val * 100, 2))
+    }
 
     def __init__(self, **kwargs):
         """Constructor method.
