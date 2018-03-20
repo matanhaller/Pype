@@ -11,6 +11,8 @@ import time
 import cv2
 import base64
 
+import matplotlib.pyplot as plt
+
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.clock import mainthread
@@ -154,6 +156,15 @@ class PypePeer(object):
                     if self.session and data['master'] == self.session.master:
                         # Closing call if necessary
                         if data['subtype'] == 'call_remove':
+
+                            # Plotting framedrop graph (for testing puposes)
+                            user = self.session.user_lst[0]
+                            tracker = self.session.video_stat_dct[user]
+                            plt.plot(tracker.xlst, tracker.ylst)
+                            plt.xlabel('Time (s)')
+                            plt.ylabel('framedrop (%)')
+                            plt.show()
+
                             # Removing multicast conns from connection list
                             for conn in [self.session.audio_conn, self.session.video_conn, self.session.chat_conn]:
                                 self.conn_lst.remove(conn)

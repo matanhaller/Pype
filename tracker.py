@@ -58,7 +58,9 @@ class Tracker(object):
     def __init__(self):
         """Constructor method
         """
-
+        self.call_start = time.time()
+        self.xlst = []
+        self.ylst = []
         self.seq = 0
         self.recvd_packets_framerate = 0
         self.recvd_packets_framedrop = 0
@@ -172,9 +174,11 @@ class Tracker(object):
             # Updating average framedrop
             new_framedrop = self.lost_packets / \
                 float(self.lost_packets + self.recvd_packets_framedrop)
+            self.xlst.append(kwargs['timestamp'] - self.call_start)
             weight = exp_weight(delta_t)
             self.stat_dct['framedrop'] = exp_moving_avg(
                 self.stat_dct['framedrop'], new_framedrop, weight)
+            self.ylst.append(self.stat_dct['framedrop'] * 100)
 
             self.recvd_packets_framedrop = 0
             self.lost_packets = 0
