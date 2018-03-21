@@ -611,8 +611,9 @@ class VideoLayout(FloatLayout):
                 decoded_frame.tostring(), colorfmt='bgr', bufferfmt='ubyte')
 
             # Displaying the new video frame on the correct display
-            self.video_display_dct[kwargs['src']
-                                   ].ids.frame.texture = frame_texture
+            if kwargs['src'] in self.video_display_dct:
+                self.video_display_dct[kwargs['src']
+                                       ].ids.frame.texture = frame_texture
 
 
 class SelfVideoDisplay(Camera):
