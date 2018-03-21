@@ -10,6 +10,7 @@ import struct
 import time
 import cv2
 import base64
+import threading
 
 import matplotlib.pyplot as plt
 
@@ -154,28 +155,15 @@ class PypePeer(object):
                 elif data['type'] == 'call_update':
                     root.call_layout.update(**data)
                     if self.session and data['master'] == self.session.master:
-                        # Closing call if necessary
                         if data['subtype'] == 'call_remove':
-
-                            # Plotting framedrop graph (for testing puposes)
-                            user = self.session.user_lst[0]
-                            tracker = self.session.video_stat_dct[user]
-                            plt.plot(tracker.xlst, tracker.ylst)
-                            plt.xlabel('Time (s)')
-                            plt.ylabel('framedrop (%)')
-                            plt.show()
-
-                            # Removing multicast conns from connection list
-                            for conn in [self.session.audio_conn, self.session.video_conn, self.session.chat_conn]:
-                                self.conn_lst.remove(conn)
-                            self.session.terminate()
-                            self.session = None
-                            root.switch_to_call_layout()
-                        else:
-                            if hasattr(root, 'session_layout') and data['subtype'] != 'call_add':
-                                self.session.update(**data)
+                            # Leaving call if necessary
+                            self.leave_call()
+                        elif data['subtype'] in ['user_join', 'user_leave'] and data['name'] != root.username:
+                            # Updating session display
+                            self.session.update(**data)
+                            if hasattr(root, 'session_layout'):
                                 root.session_layout.update(**data)
-                            elif data['subtype'] != 'call_add':
+                            else:
                                 self.session_buffer.append(data)
 
                 # Call request/response
@@ -232,14 +220,16 @@ class PypePeer(object):
                     # Leaving call
                     if data['subtype'] == 'leave':
                         self.task_lst.append(Task(self.server_conn, data))
+                        self.leave_call()
 
                     # Receiving video packets
                     elif data['subtype'] == 'video':
                         if self.session:
                             username = root.username
                             if data['src'] != username:
-                                self.session.video_stat_dct[
-                                    data['src']].update(**data)
+                                if data['src'] in self.session.user_lst:
+                                    self.session.video_stat_dct[
+                                        data['src']].update(**data)
                         if hasattr(root, 'session_layout'):
                             root.session_layout.video_layout.update_frame(
                                 **data)
@@ -271,6 +261,42 @@ class PypePeer(object):
             if task.conn in write_lst:
                 task.send_msg()
                 self.task_lst.remove(task)
+
+    def leave_call(self):
+        """Procedures to be done before leaving call.
+        """
+
+        root = App.get_running_app().root_sm.current_screen
+
+        # Plotting framedrop graph (for testing puposes)
+        threading.Thread(target=self.plot_framedrop).start()
+
+        # Removing multicast conns from connection list
+        for conn in [self.session.audio_conn, self.session.video_conn, self.session.chat_conn]:
+            self.conn_lst.remove(conn)
+
+        # Closing session
+        self.session.terminate()
+        self.session = None
+
+        # Switching to call layout
+        root = App.get_running_app().root_sm.current_screen
+        root.switch_to_call_layout()
+
+    def plot_framedrop(self):
+        """Plotting framedrop graph (for testing puposes).
+        """
+
+        root = App.get_running_app().root_sm.current_screen
+
+        user = self.session.user_lst[0]
+        if user == root.username:
+            user = self.session.user_lst[1]
+            tracker = self.session.video_stat_dct[user]
+            plt.plot(tracker.xlst, tracker.ylst)
+            plt.xlabel('Time (s)')
+            plt.ylabel('framedrop (%)')
+            plt.show()
 
     def get_jsons(self, raw_data):
         """Retreives JSON objects string and parses it.
