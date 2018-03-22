@@ -8,6 +8,7 @@ import json
 import sys
 import struct
 import time
+import pyaudio
 import cv2
 import base64
 import threading
@@ -21,6 +22,69 @@ from kivy.uix.label import Label
 
 from task import Task
 from tracker import Tracker
+
+
+def rate_limit(rate):
+    """Creates rate limit decorator.
+
+    Args:
+        rate (int): Upper bound of sending rate.
+
+    Returns:
+        function: Rate limit decorator.
+    """
+
+    def decorator(f):
+        """Decorator which limits rate of transmission functions.
+
+        Args:
+            f (function): Function to limit its rate.
+
+        Returns:
+            function: Wrapper function to switch the original. 
+        """
+
+        def wrapper(*args, **kwargs):
+            """Wrapper function for rate limit decorator.
+
+            Args:
+                *args: Positional arguments supplied in tuple form.
+                **kwargs: Keyword arguments supplied in dictionary form.
+            """
+
+            current_time = time.time()
+            if current_time - wrapper.last_call > 1.0 / wrapper.rate:
+                f(*args, **kwargs)
+                wrapper.last_call = current_time
+
+        wrapper.last_call = time.time()
+        wrapper.rate = rate
+        return wrapper
+
+    return decorator
+
+
+def new_thread(f):
+    """Decorator which runs function on a seperate thread.
+
+    Args:
+        f (function): Function to run on a seperate thread.
+
+    Returns:
+        function: Wrapper function to switch the original.
+    """
+
+    def wrapper(*args, **kwargs):
+        """Wrapper function for seperate thread decorator.
+
+        Args:
+            *args: Positional arguments supplied in tuple form.
+            **kwargs: Keyword arguments supplied in dictionary form.
+        """
+
+        threading.Thread(target=f, args=args, kwargs=kwargs).start()
+
+    return wrapper
 
 
 class PypePeer(object):
@@ -269,7 +333,7 @@ class PypePeer(object):
         root = App.get_running_app().root_sm.current_screen
 
         # Plotting framedrop graph (for testing puposes)
-        threading.Thread(target=self.plot_framedrop).start()
+        self.plot_framedrop()
 
         # Removing multicast conns from connection list
         for conn in [self.session.audio_conn, self.session.video_conn, self.session.chat_conn]:
@@ -283,6 +347,7 @@ class PypePeer(object):
         root = App.get_running_app().root_sm.current_screen
         root.switch_to_call_layout()
 
+    @new_thread
     def plot_framedrop(self):
         """Plotting framedrop graph (for testing puposes).
         """
@@ -322,57 +387,19 @@ class PypePeer(object):
         return json_lst
 
 
-def rate_limit(rate):
-    """Creates rate limit decorator.
-
-    Args:
-        rate (int): Upper bound of sending rate.
-
-    Returns:
-        function: Rate limit decorator.
-    """
-
-    def decorator(f):
-        """Decorator which limits rate of transmission functions.
-
-        Args:
-            f (function): Function to limit its rate.
-
-        Returns:
-            function: Wrapper function to switch the original. 
-        """
-
-        def wrapper(*args, **kwargs):
-            """Wrapper function for rate limit decorator.
-
-            Args:
-                *args: Positional arguments supplied in tuple form.
-                **kwargs: Keyword arguments supplied in dictionary form.
-            """
-
-            current_time = time.time()
-            if current_time - wrapper.last_call > 1.0 / wrapper.rate:
-                f(*args, **kwargs)
-                wrapper.last_call = current_time
-
-        wrapper.last_call = time.time()
-        wrapper.rate = rate
-        return wrapper
-
-    return decorator
-
-
 class Session(object):
 
     """Class used for management of current call.
 
     Attributes:
-        AUDIO (int): Audio transmission mode. (static)
         audio_addr (str): Multicast address used for audio transmission.
         audio_conn (socket.socket): UDP connection used for audio transmission.
+        audio_input_stream (pyaudio.Stream): Audio input stream object.
+        audio_interface (pyaudio.PyAudio): Interface for accessing audio methods.
+        audio_output_stream (pyaudio.Stream): Audio output stream object.
+        AUDIO_SAMPLING_RATE (int): Audio sampling rate.
         audio_seq (int): Audio sequence number.
         audio_stat_dct (dict): Audio statistics dictionary.
-        cap (cv2.VideoCapture): Webcam video capture object.
         chat_addr (str): Multicast address used for chat messaging.
         chat_conn (socket.socket): UDP connection used for chat messaging.
         INITIAL_SENDING_RATE (int): Initial sending rate.
@@ -380,8 +407,8 @@ class Session(object):
         MULTICAST_PORT (int): Port for multicast communication. (static)
         task_lst (list): List of tasks to send (the same one that PypePeer has).
         user_lst (list): List of users in call.
-        VIDEO (int): Video transmission mode. (static)
         video_addr (str): Multicast address used for video transmission.
+        video_capture (cv2.VideoCapture): Webcam video capture object.
         VIDEO_COMPRESSION_QUALITY (int): Quality of video JPEG compression. (static)
         video_conn (socket.socket): UDP connection used for video transmission.
         video_seq (int): Video sequence number.
@@ -389,10 +416,9 @@ class Session(object):
     """
 
     MULTICAST_PORT = 8192
-    AUDIO = 0
-    VIDEO = 1
+    AUDIO_SAMPLING_RATE = 44100  # 44.1 KHz
     VIDEO_COMPRESSION_QUALITY = 20
-    INITIAL_SENDING_RATE = 24
+    INITIAL_SENDING_RATE = 24  # 24 fps
 
     def __init__(self, **kwargs):
         """Constructor method.
@@ -421,8 +447,21 @@ class Session(object):
         self.audio_stat_dct = {user: Tracker() for user in self.user_lst}
         self.video_stat_dct = {user: Tracker() for user in self.user_lst}
 
+        # Initializing audio stream
+        self.audio_interface = pyaudio.PyAudio()
+        self.audio_input_stream = self.audio_interface.open(
+            format=pyaudio.paInt16,
+            channels=1,
+            rate=Session.AUDIO_SAMPLING_RATE,
+            input=True)
+        self.audio_output_stream = self.audio_interface.open(
+            format=pyaudio.paInt16,
+            channels=1,
+            rate=Session.AUDIO_SAMPLING_RATE,
+            output=True)
+
         # Creating video capture
-        self.cap = cv2.VideoCapture(1)
+        self.video_capture = cv2.VideoCapture(1)
 
         self.task_lst = kwargs['task_lst']
 
@@ -475,12 +514,19 @@ class Session(object):
         return conn
 
     @rate_limit(INITIAL_SENDING_RATE)
+    def send_audio(self):
+        """Summary
+        """
+
+        pass
+
+    @rate_limit(INITIAL_SENDING_RATE)
     def send_video(self):
         """Sends video packet to multicast group.
         """
 
         # Capturing video frame from webcam
-        ret, frame = self.cap.read()
+        ret, frame = self.video_capture.read()
         if ret:
             # Compressing frame using JPEG
             ret, encoded_frame = cv2.imencode('.jpg', frame,
@@ -535,4 +581,4 @@ class Session(object):
 
         root = App.get_running_app().root_sm.current_screen
         root.session_layout.video_layout.ids.self_cap.play = False
-        self.cap.release()
+        self.video_capture.release()
