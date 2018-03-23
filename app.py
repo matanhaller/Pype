@@ -615,6 +615,12 @@ class VideoLayout(FloatLayout):
                 self.video_display_dct[kwargs['src']
                                        ].ids.frame.texture = frame_texture
 
+            # Updating video statistics
+            peer = App.get_running_app().peer
+            if peer.session and kwargs['src'] in peer.session.user_lst:
+                tracker = peer.session.video_stat_dct[kwargs['src']]
+                tracker.update(**kwargs)
+
 
 class SelfVideoDisplay(Camera):
 

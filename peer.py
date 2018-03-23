@@ -125,7 +125,7 @@ class PypePeer(object):
                 # GUI terminated
                 if data['type'] == 'terminate':
                     if self.session and hasattr(self.session, 'video_capture'):
-                        self.session.video_capture.release()
+                        self.leave_call()
                     self.server_conn.close()
                     self.gui_evt_conn.close()
                     sys.exit()
@@ -219,13 +219,14 @@ class PypePeer(object):
                         if hasattr(root, 'session_layout'):
                             root.session_layout.video_layout.update_frame(
                                 **data)
+                        '''
                         if self.session:
                             username = root.username
                             if data['src'] != username:
                                 if data['src'] in self.session.user_lst:
                                     self.session.video_stat_dct[
                                         data['src']].update(**data)
-
+                        '''
                     # Sending chat message
                     elif data['subtype'] == 'self_chat':
                         self.session.send_chat(**data)
@@ -371,7 +372,7 @@ class Session(object):
     AUDIO_SAMPLING_RATE = 44100  # 44.1 KHz
     AUDIO_CHUNK_SIZE = 1024
     VIDEO_COMPRESSION_QUALITY = 20
-    INITIAL_SENDING_RATE = 30  # 24 fps
+    INITIAL_SENDING_RATE = 24  # 24 fps
 
     def __init__(self, **kwargs):
         """Constructor method.
