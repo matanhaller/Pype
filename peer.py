@@ -7,11 +7,9 @@ import select
 import json
 import sys
 import struct
-import time
 import pyaudio
 import cv2
 import base64
-import threading
 
 import matplotlib.pyplot as plt
 
@@ -22,69 +20,7 @@ from kivy.uix.label import Label
 
 from task import Task
 from tracker import Tracker
-
-
-def rate_limit(rate):
-    """Creates rate limit decorator.
-
-    Args:
-        rate (int): Upper bound of sending rate.
-
-    Returns:
-        function: Rate limit decorator.
-    """
-
-    def decorator(f):
-        """Decorator which limits rate of transmission functions.
-
-        Args:
-            f (function): Function to limit its rate.
-
-        Returns:
-            function: Wrapper function to switch the original. 
-        """
-
-        def wrapper(*args, **kwargs):
-            """Wrapper function for rate limit decorator.
-
-            Args:
-                *args: Positional arguments supplied in tuple form.
-                **kwargs: Keyword arguments supplied in dictionary form.
-            """
-
-            current_time = time.time()
-            if current_time - wrapper.last_call > 1.0 / wrapper.rate:
-                f(*args, **kwargs)
-                wrapper.last_call = current_time
-
-        wrapper.last_call = time.time()
-        wrapper.rate = rate
-        return wrapper
-
-    return decorator
-
-
-def new_thread(f):
-    """Decorator which runs function on a seperate thread.
-
-    Args:
-        f (function): Function to run on a seperate thread.
-
-    Returns:
-        function: Wrapper function to switch the original.
-    """
-
-    def wrapper(*args, **kwargs):
-        """Wrapper function for seperate thread decorator.
-
-        Args:
-            *args: Positional arguments supplied in tuple form.
-            **kwargs: Keyword arguments supplied in dictionary form.
-        """
-
-        threading.Thread(target=f, args=args, kwargs=kwargs).start()
-
-    return wrapper
+from decorators import *
 
 
 class PypePeer(object):
@@ -160,8 +96,6 @@ class PypePeer(object):
 
             # Handling call procedures
             if self.session and hasattr(root, 'session_layout'):
-                # Sending audio and video
-                self.session.send_video()
 
                 # Updating statistics on screen
                 self.session.update_statistics()
@@ -190,8 +124,8 @@ class PypePeer(object):
             for data in data_lst:
                 # GUI terminated
                 if data['type'] == 'terminate':
-                    if self.session and hasattr(self.session, 'cap'):
-                        self.session.cap.release()
+                    if self.session and hasattr(self.session, 'video_capture'):
+                        self.session.video_capture.release()
                     self.server_conn.close()
                     self.gui_evt_conn.close()
                     sys.exit()
@@ -268,13 +202,7 @@ class PypePeer(object):
                                 if hasattr(root, 'footer_widget'):
                                     root.remove_footer_widget()
                             else:
-                                self.session = Session(
-                                    task_lst=self.task_lst, **data)
-                                root.switch_to_session_layout(**data)
-
-                                # Adding multicast conns to connection list
-                                for conn in [self.session.audio_conn, self.session.video_conn, self.session.chat_conn]:
-                                    self.conn_lst.append(conn)
+                                self.start_call(**data)
                         else:
                             root.add_footer_widget(mode='rejected_call')
                         self.call_block = False
@@ -288,15 +216,15 @@ class PypePeer(object):
 
                     # Receiving video packets
                     elif data['subtype'] == 'video':
+                        if hasattr(root, 'session_layout'):
+                            root.session_layout.video_layout.update_frame(
+                                **data)
                         if self.session:
                             username = root.username
                             if data['src'] != username:
                                 if data['src'] in self.session.user_lst:
                                     self.session.video_stat_dct[
                                         data['src']].update(**data)
-                        if hasattr(root, 'session_layout'):
-                            root.session_layout.video_layout.update_frame(
-                                **data)
 
                     # Sending chat message
                     elif data['subtype'] == 'self_chat':
@@ -326,14 +254,37 @@ class PypePeer(object):
                 task.send_msg()
                 self.task_lst.remove(task)
 
+    def start_call(self, **kwargs):
+        """Procedures to be done when starting call.
+
+        Args:
+            **kwargs: Keyword arguments supplied in dictionary form.
+        """
+
+        root = App.get_running_app().root_sm.current_screen
+
+        # Creating new session object
+        self.session = Session(
+            task_lst=self.task_lst, **kwargs)
+
+        # Switching app interface to session layout
+        root.switch_to_session_layout(**kwargs)
+
+        # Adding multicast conns to connection list
+        for conn in [self.session.audio_conn, self.session.video_conn, self.session.chat_conn]:
+            self.conn_lst.append(conn)
+
+        # Starting audio and video packet sending threads
+        self.session.video_send_loop()
+
     def leave_call(self):
-        """Procedures to be done before leaving call.
+        """Procedures to be done when leaving call.
         """
 
         root = App.get_running_app().root_sm.current_screen
 
         # Plotting framedrop graph (for testing puposes)
-        self.plot_framedrop()
+        # self.plot_framedrop()
 
         # Removing multicast conns from connection list
         for conn in [self.session.audio_conn, self.session.video_conn, self.session.chat_conn]:
@@ -361,7 +312,7 @@ class PypePeer(object):
             plt.plot(tracker.xlst, tracker.ylst)
             plt.xlabel('Time (s)')
             plt.ylabel('framedrop (%)')
-            plt.show()
+            # plt.show()
 
     def get_jsons(self, raw_data):
         """Retreives JSON objects string and parses it.
@@ -393,6 +344,7 @@ class Session(object):
 
     Attributes:
         audio_addr (str): Multicast address used for audio transmission.
+        AUDIO_CHUNK_SIZE (int): The number of audio samples in a single read.
         audio_conn (socket.socket): UDP connection used for audio transmission.
         audio_input_stream (pyaudio.Stream): Audio input stream object.
         audio_interface (pyaudio.PyAudio): Interface for accessing audio methods.
@@ -417,14 +369,15 @@ class Session(object):
 
     MULTICAST_PORT = 8192
     AUDIO_SAMPLING_RATE = 44100  # 44.1 KHz
+    AUDIO_CHUNK_SIZE = 1024
     VIDEO_COMPRESSION_QUALITY = 20
-    INITIAL_SENDING_RATE = 24  # 24 fps
+    INITIAL_SENDING_RATE = 30  # 24 fps
 
     def __init__(self, **kwargs):
         """Constructor method.
 
         Args:
-            **kwargs: Keyword arguments supplied by dictionary.
+            **kwargs: Keyword arguments supplied in dictionary form.
         """
 
         self.master = kwargs['master']
@@ -462,6 +415,8 @@ class Session(object):
 
         # Creating video capture
         self.video_capture = cv2.VideoCapture(1)
+
+        self.keep_sending = True
 
         self.task_lst = kwargs['task_lst']
 
@@ -513,12 +468,34 @@ class Session(object):
 
         return conn
 
+    @new_thread
+    def audio_send_loop(self):
+        """Summary
+        """
+
+        pass
+
+    @new_thread
+    def audio_recv_loop(self):
+        """Summary
+        """
+
+        pass
+
     @rate_limit(INITIAL_SENDING_RATE)
     def send_audio(self):
         """Summary
         """
 
         pass
+
+    @new_thread
+    def video_send_loop(self):
+        """Loop for sending video packets in parallel.
+        """
+
+        while self.keep_sending:
+            self.send_video()
 
     @rate_limit(INITIAL_SENDING_RATE)
     def send_video(self):
@@ -527,6 +504,7 @@ class Session(object):
 
         # Capturing video frame from webcam
         ret, frame = self.video_capture.read()
+
         if ret:
             # Compressing frame using JPEG
             ret, encoded_frame = cv2.imencode('.jpg', frame,
@@ -544,11 +522,13 @@ class Session(object):
                 'seq': self.video_seq,
                 'frame': base64.b64encode(encoded_frame)
             }
-            self.task_lst.append(Task(self.video_conn, video_msg,
-                                      (self.video_addr, Session.MULTICAST_PORT)))
 
             # Incrementing video packet sequence number
             self.video_seq += 1
+
+            # Sending video packet
+            Task(self.video_conn, video_msg,
+                 (self.video_addr, Session.MULTICAST_PORT)).send_msg()
 
     def send_chat(self, **kwargs):
         """Sends chat message to call multicast chat group.
@@ -564,7 +544,7 @@ class Session(object):
 
     @rate_limit(1)
     def update_statistics(self):
-        """Updates statistics on screen
+        """Updates statistics on screen.
         """
 
         root = App.get_running_app().root_sm.current_screen
@@ -579,6 +559,19 @@ class Session(object):
         """A series of operations to be done before session terminates.
         """
 
+        # Signalling video and audio sending threads to terminate
+        self.keep_sending = False
+
+        # Stopping self camera capture
         root = App.get_running_app().root_sm.current_screen
         root.session_layout.video_layout.ids.self_cap.play = False
+
+        # Closing audio streams
+        self.audio_input_stream.stop_stream()
+        self.audio_input_stream.close()
+        self.audio_output_stream.stop_stream()
+        self.audio_output_stream.close()
+        self.audio_interface.terminate()
+
+        # Releasing video capture
         self.video_capture.release()

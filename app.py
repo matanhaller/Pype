@@ -734,6 +734,7 @@ class ChatLayout(BoxLayout):
 
         # Sending chat GUI event
         msg = self.ids.chat_input.text
+        self.ids.chat_input.text = ''
         app = App.get_running_app()
         app.send_gui_evt({
             'type': 'session',
