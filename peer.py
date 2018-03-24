@@ -28,6 +28,7 @@ class PypePeer(object):
     """App peer class.
 
     Attributes:
+        app_thead_running (bool): Boolean indicating whether the app's Kivy thread is running.
         call_block (bool): Blocks user from calling other users when true.
         conn_lst (list): Active connections.
         gui_evt_conn (socket.socket): UDP connection with GUI component of app.
@@ -47,6 +48,7 @@ class PypePeer(object):
         """Constructor method.
         """
 
+        self.app_thead_running = True
         self.server_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.gui_evt_conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.gui_evt_conn.bind(('localhost', 0))
@@ -71,12 +73,7 @@ class PypePeer(object):
         """
 
         # Connecting to server
-        while True:
-            try:
-                self.server_conn.connect(PypePeer.SERVER_ADDR)
-                break
-            except socket.error:
-                continue
+        self.server_connect()
 
         # Peer mainloop
         while True:
@@ -99,6 +96,18 @@ class PypePeer(object):
 
                 # Updating statistics on screen
                 self.session.update_statistics()
+
+    @new_thread
+    def server_connect(self):
+        """Tries connecting to server as long as it isn't connected
+        """
+
+        while self.app_thead_running:
+            try:
+                self.server_conn.connect(PypePeer.SERVER_ADDR)
+                break
+            except socket.error:
+                continue
 
     def handle_readables(self, read_lst):
         """Handles all readable connections in mainloop.
@@ -124,11 +133,7 @@ class PypePeer(object):
             for data in data_lst:
                 # GUI terminated
                 if data['type'] == 'terminate':
-                    if self.session and hasattr(self.session, 'video_capture'):
-                        self.leave_call()
-                    self.server_conn.close()
-                    self.gui_evt_conn.close()
-                    sys.exit()
+                    self.terminate()
 
                 # Join request/response
                 if data['type'] == 'join':
@@ -313,7 +318,7 @@ class PypePeer(object):
             plt.plot(tracker.xlst, tracker.ylst)
             plt.xlabel('Time (s)')
             plt.ylabel('framedrop (%)')
-            # plt.show()
+            plt.show()
 
     def get_jsons(self, raw_data):
         """Retreives JSON objects string and parses it.
@@ -338,6 +343,24 @@ class PypePeer(object):
 
         return json_lst
 
+    def terminate(self):
+        """A series of procedures to be done on GUI terminate.
+        """
+
+        # Signalling that GUI has terminated
+        self.app_thead_running = False
+
+        # Leaving active call (if there is)
+        if self.session and hasattr(self.session, 'video_capture'):
+            self.leave_call()
+
+        # Closing active connections
+        self.server_conn.close()
+        self.gui_evt_conn.close()
+
+        # Exiting app
+        sys.exit()
+
 
 class Session(object):
 
@@ -356,6 +379,7 @@ class Session(object):
         chat_addr (str): Multicast address used for chat messaging.
         chat_conn (socket.socket): UDP connection used for chat messaging.
         INITIAL_SENDING_RATE (int): Initial sending rate.
+        keep_sending (bool): Description
         master (str): Currrent call master.
         MULTICAST_PORT (int): Port for multicast communication. (static)
         task_lst (list): List of tasks to send (the same one that PypePeer has).
@@ -372,7 +396,7 @@ class Session(object):
     AUDIO_SAMPLING_RATE = 44100  # 44.1 KHz
     AUDIO_CHUNK_SIZE = 1024
     VIDEO_COMPRESSION_QUALITY = 20
-    INITIAL_SENDING_RATE = 24  # 24 fps
+    INITIAL_SENDING_RATE = 30  # 30 fps
 
     def __init__(self, **kwargs):
         """Constructor method.
