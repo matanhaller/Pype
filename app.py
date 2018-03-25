@@ -635,6 +635,7 @@ class PeerVideoDisplay(BoxLayout):
     """Display of other peers' video capture (see .kv file for structure).
 
     Attributes:
+        show_stats (bool): Whether to display statistics on display.
         stat_lbl (Label): Label for showing call statistics.
         user (str): Name of user in video.
     """
@@ -643,8 +644,8 @@ class PeerVideoDisplay(BoxLayout):
         """Constructor method
 
         Args:
-            show_stats (bool): Whether to display statistics on display.
             user (str): Name of user in video.
+            show_stats (bool): Whether to display statistics on display.
         """
 
         self.user = user
@@ -860,6 +861,9 @@ class PypeApp(App):
         Returns:
             ScreenManager: Root screen manager.
         """
+
+        # Adjusting maximum callback iterations at the end of frame
+        Clock.max_iteration = 20
 
         # Setting window size
         Config.set('graphics', 'width', PypeApp.WINDOW_WIDTH)
