@@ -191,12 +191,16 @@ class PypeServer(object):
                                             callee.join_call(call)
                                             self.report_call_update(
                                                 subtype='user_join', master=call.master, name=callee.name)
+                                            self.logger.info(
+                                                '{} joined a call.'.format(callee.name))
                                         else:
                                             call = callee.call
                                             self.user_dct[
                                                 caller].join_call(call)
                                             self.report_call_update(
                                                 subtype='user_join', master=call.master, name=caller)
+                                            self.logger.info(
+                                                '{} joined a call.'.format(self.user_dct[caller].name))
                                     else:
                                         # Creating new call
                                         call = Call(audio_addr=self.get_multicast_addr(),
@@ -207,6 +211,8 @@ class PypeServer(object):
                                         self.call_dct[caller] = call
                                         self.report_call_update(
                                             subtype='call_add', master=caller, user_lst=call.user_lst)
+                                        self.logger.info('Call started, participants: {}'.format(
+                                            ', '.join(call.user_lst)))
 
                                     self.user_dct[caller].call = call
                                     response_msg['master'] = call.master
@@ -217,8 +223,6 @@ class PypeServer(object):
                                         'video': call.video_addr,
                                         'chat': call.chat_addr
                                     }
-                                    self.logger.info('Call started, participants: {}'.format(
-                                        ', '.join(call.user_lst)))
                                     self.task_lst.append(
                                         Task(conn, response_msg))
                                 else:
@@ -363,7 +367,7 @@ class PypeServer(object):
             self.report_call_update(
                 subtype='user_leave', master=prev_master,
                 new_master=call.master, name=user.name)
-            
+
         if user.name in self.user_dct:
             user.switch_status()
             self.report_user_update(
