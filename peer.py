@@ -221,17 +221,9 @@ class PypePeer(object):
 
                     # Receiving video packets
                     elif data['subtype'] == 'video':
-                        if hasattr(root, 'session_layout'):
-                            root.session_layout.video_layout.update_frame(
-                                **data)
-                        '''
-                        if self.session:
-                            username = root.username
-                            if data['src'] != username:
-                                if data['src'] in self.session.user_lst:
-                                    self.session.video_stat_dct[
-                                        data['src']].update(**data)
-                        '''
+                        root.session_layout.video_layout.update_frame(
+                            **data)
+
                     # Sending chat message
                     elif data['subtype'] == 'self_chat':
                         self.session.send_chat(**data)
@@ -280,6 +272,10 @@ class PypePeer(object):
         for conn in [self.session.audio_conn, self.session.video_conn, self.session.chat_conn]:
             self.conn_lst.append(conn)
 
+        # Waiting for session layout switch to be complete
+        while not hasattr(root, 'session_layout'):
+            pass
+
         # Starting audio and video packet sending threads
         self.session.video_send_loop()
 
@@ -289,8 +285,8 @@ class PypePeer(object):
 
         root = App.get_running_app().root_sm.current_screen
 
-        # Plotting framedrop graph (for testing puposes)
-        # self.plot_framedrop()
+        # Plotting latency graph (for testing puposes)
+        self.plot_latency()
 
         # Removing multicast conns from connection list
         for conn in [self.session.audio_conn, self.session.video_conn, self.session.chat_conn]:
@@ -305,8 +301,8 @@ class PypePeer(object):
         root.switch_to_call_layout()
 
     @new_thread
-    def plot_framedrop(self):
-        """Plotting framedrop graph (for testing puposes).
+    def plot_latency(self):
+        """Plotting latency graph (for testing puposes).
         """
 
         root = App.get_running_app().root_sm.current_screen
@@ -316,8 +312,8 @@ class PypePeer(object):
             user = self.session.user_lst[1]
             tracker = self.session.video_stat_dct[user]
             plt.plot(tracker.xlst, tracker.ylst)
-            plt.xlabel('Time (s)')
-            plt.ylabel('framedrop (%)')
+            plt.xlabel('Time [s]')
+            plt.ylabel('latency [ms]')
             plt.show()
 
     def get_jsons(self, raw_data):
@@ -379,7 +375,7 @@ class Session(object):
         chat_addr (str): Multicast address used for chat messaging.
         chat_conn (socket.socket): UDP connection used for chat messaging.
         INITIAL_SENDING_RATE (int): Initial sending rate.
-        keep_sending (bool): Description
+        keep_sending_flag (bool): Flag indicating whether to keep sending audio and video packets.
         master (str): Currrent call master.
         MULTICAST_PORT (int): Port for multicast communication. (static)
         task_lst (list): List of tasks to send (the same one that PypePeer has).
@@ -396,7 +392,7 @@ class Session(object):
     AUDIO_SAMPLING_RATE = 44100  # 44.1 KHz
     AUDIO_CHUNK_SIZE = 1024
     VIDEO_COMPRESSION_QUALITY = 20
-    INITIAL_SENDING_RATE = 30  # 30 fps
+    INITIAL_SENDING_RATE = 24  # 24 fps
 
     def __init__(self, **kwargs):
         """Constructor method.
@@ -441,7 +437,7 @@ class Session(object):
         # Creating video capture
         self.video_capture = cv2.VideoCapture(1)
 
-        self.keep_sending = True
+        self.keep_sending_flag = True
 
         self.task_lst = kwargs['task_lst']
 
@@ -519,7 +515,7 @@ class Session(object):
         """Loop for sending video packets in parallel.
         """
 
-        while self.keep_sending:
+        while self.keep_sending_flag:
             self.send_video()
 
     @rate_limit(INITIAL_SENDING_RATE)
@@ -585,11 +581,12 @@ class Session(object):
         """
 
         # Signalling video and audio sending threads to terminate
-        self.keep_sending = False
+        self.keep_sending_flag = False
 
         # Stopping self camera capture
         root = App.get_running_app().root_sm.current_screen
-        root.session_layout.video_layout.ids.self_cap.play = False
+        if hasattr(root, 'session_layout'):
+            root.session_layout.video_layout.ids.self_cap.play = False
 
         # Closing audio streams
         self.audio_input_stream.stop_stream()
