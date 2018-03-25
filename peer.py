@@ -286,7 +286,7 @@ class PypePeer(object):
         root = App.get_running_app().root_sm.current_screen
 
         # Plotting latency graph (for testing puposes)
-        self.plot_latency()
+        # self.plot_latency()
 
         # Removing multicast conns from connection list
         for conn in [self.session.audio_conn, self.session.video_conn, self.session.chat_conn]:
