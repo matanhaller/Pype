@@ -491,10 +491,11 @@ class Session(object):
 
     @new_thread
     def audio_send_loop(self):
-        """Summary
+        """Loop for sending audio packets in parallel.
         """
 
-        pass
+        while self.keep_sending_flag:
+            self.send_audio()
 
     @new_thread
     def audio_recv_loop(self):
@@ -503,12 +504,31 @@ class Session(object):
 
         pass
 
-    @rate_limit(INITIAL_SENDING_RATE)
     def send_audio(self):
-        """Summary
+        """Sends audio packet to multicast group.
         """
 
-        pass
+        # Reading a chunk of audio samples from stream
+        audio_chunk = self.audio_input_stream.read(Session.AUDIO_CHUNK_SIZE)
+
+        # Composing audio packet
+        username = App.get_running_app().root_sm.current_screen.username
+        audio_msg = {
+            'type': 'session',
+            'subtype': 'audio',
+            'mode': 'content',
+            'timestamp': None,
+            'src': username,
+            'seq': self.audio_seq,
+            'chunk': base64.b64encode(audio_chunk)
+        }
+
+        # Incrementing audio packet sequence number
+        self.audio_seq += 1
+
+        # Sending audio packet
+        Task(self.audio_conn, audio_msg,
+             (self.audio_addr, Session.MULTICAST_PORT)).send_msg()
 
     @new_thread
     def video_send_loop(self):
@@ -532,7 +552,7 @@ class Session(object):
                                               [cv2.IMWRITE_JPEG_QUALITY,
                                                Session.VIDEO_COMPRESSION_QUALITY])
 
-            # Sending video packet
+            # Composing video packet
             username = App.get_running_app().root_sm.current_screen.username
             video_msg = {
                 'type': 'session',
