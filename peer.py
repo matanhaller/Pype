@@ -23,6 +23,30 @@ from tracker import Tracker
 from decorators import *
 
 
+def get_jsons(raw_data):
+    """Retreives JSON objects string and parses it.
+
+    Args:
+        raw_data (str): Data to parse.
+
+    Returns:
+        list: Parsed JSON objects list.
+    """
+
+    decoder = json.JSONDecoder()
+    json_lst = []
+
+    while True:
+        try:
+            json_obj, end_index = decoder.raw_decode(raw_data)
+            json_lst.append(json_obj)
+            raw_data = raw_data[end_index:]
+        except ValueError:
+            break
+
+    return json_lst
+
+
 class PypePeer(object):
 
     """App peer class.
@@ -127,7 +151,7 @@ class PypePeer(object):
             root = app.root_sm.current_screen
 
             # Parsing JSON data
-            data_lst = self.get_jsons(raw_data)
+            data_lst = get_jsons(raw_data)
 
             # Handling messages
             for data in data_lst:
@@ -276,7 +300,14 @@ class PypePeer(object):
         while not hasattr(root, 'session_layout'):
             pass
 
+        # Creating list for temporary storing of received audio packets.
+        self.temp_audio_lst = []
+
+        # Starting audio receiving thread
+        self.session.audio_recv_loop()
+
         # Starting audio and video packet sending threads
+        self.session.audio_send_loop()
         self.session.video_send_loop()
 
     def leave_call(self):
@@ -315,29 +346,6 @@ class PypePeer(object):
             plt.xlabel('Time [s]')
             plt.ylabel('latency [ms]')
             plt.show()
-
-    def get_jsons(self, raw_data):
-        """Retreives JSON objects string and parses it.
-
-        Args:
-            raw_data (str): Data to parse.
-
-        Returns:
-            list: Parsed JSON objects list.
-        """
-
-        decoder = json.JSONDecoder()
-        json_lst = []
-
-        while True:
-            try:
-                json_obj, end_index = decoder.raw_decode(raw_data)
-                json_lst.append(json_obj)
-                raw_data = raw_data[end_index:]
-            except ValueError:
-                break
-
-        return json_lst
 
     def terminate(self):
         """A series of procedures to be done on GUI terminate.
@@ -445,7 +453,7 @@ class Session(object):
         """Updates session when changes in call occur.
 
         Args:
-            **kwargs: Keyword arguments supplied in dictioanry form.
+            **kwargs: Keyword arguments supplied in dictionary form.
         """
 
         # User join
@@ -499,10 +507,18 @@ class Session(object):
 
     @new_thread
     def audio_recv_loop(self):
-        """Summary
+        """Receives and plays audio in parallel.
         """
 
-        pass
+        while self.keep_sending_flag:
+            # Receiving and parsing new audio packets
+            raw_data, addr = self.audio_conn.recvfrom(PypePeer.MAX_RECV_SIZE)
+            data_lst = get_jsons(raw_data)
+
+            # Decodding and playing audio packets
+            for data in data_lst:
+                audio_chunk = base64.b64decode(data['chunk'])
+                self.audio_output_stream.write(audio_chunk)
 
     def send_audio(self):
         """Sends audio packet to multicast group.
