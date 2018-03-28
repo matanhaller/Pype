@@ -46,24 +46,37 @@ def rate_limit(rate):
     return decorator
 
 
-def new_thread(f):
-    """Decorator which runs function on a seperate thread.
+def new_thread(name):
+    """Creates new thread decorator.
 
     Args:
-        f (function): Function to run on a seperate thread.
+        name (str): Thread name.
 
     Returns:
-        function: Wrapper function to switch the original.
+        function: New thread decorator.
     """
 
-    def wrapper(*args, **kwargs):
-        """Wrapper function for seperate thread decorator.
+    def decorator(f):
+        """Decorator which calls function on a new thread.
 
         Args:
-            *args: Positional arguments supplied in tuple form.
-            **kwargs: Keyword arguments supplied in dictionary form.
+        	f (function): Function to run on a new thread.
+
+        Returns:
+        	function: Wrapper function to switch the original.
         """
 
-        threading.Thread(target=f, args=args, kwargs=kwargs).start()
+        def wrapper(*args, **kwargs):
+            """Wrapper function for new thread decorator.
 
-    return wrapper
+            Args:
+                *args: Positional arguments supplied in tuple form.
+                **kwargs: Keyword arguments supplied in dictionary form.
+            """
+
+            threading.Thread(name=name, target=f,
+                             args=args, kwargs=kwargs).start()
+
+        return wrapper
+
+    return decorator
