@@ -876,7 +876,7 @@ class PypeApp(App):
         # Creating communication thread
         self.peer = PypePeer()
         self.gui_evt_port = self.peer.get_gui_evt_port()
-        threading.Thread(target=self.peer.run).start()
+        self.peer.run()
 
         # Creating user event sender
         self.gui_evt_sender = socket.socket(
