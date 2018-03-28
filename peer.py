@@ -52,7 +52,7 @@ class PypePeer(object):
     """App peer class.
 
     Attributes:
-        app_thead_running (bool): Boolean indicating whether the app's Kivy thread is running.
+        app_thread_running_flag (bool): Boolean indicating whether the app's Kivy thread is running.
         call_block (bool): Blocks user from calling other users when true.
         conn_lst (list): Active connections.
         gui_evt_conn (socket.socket): UDP connection with GUI component of app.
@@ -72,7 +72,7 @@ class PypePeer(object):
         """Constructor method.
         """
 
-        self.app_thead_running = True
+        self.app_thread_running_flag = True
         self.server_conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.gui_evt_conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.gui_evt_conn.bind(('localhost', 0))
@@ -92,6 +92,7 @@ class PypePeer(object):
 
         return self.gui_evt_conn.getsockname()[1]
 
+    @new_thread('peer_thread')
     def run(self):
         """Peer mainloop method.
         """
@@ -121,12 +122,12 @@ class PypePeer(object):
                 # Updating statistics on screen
                 self.session.update_statistics()
 
-    @new_thread
+    @new_thread('server_connect_thread')
     def server_connect(self):
         """Tries connecting to server as long as it isn't connected
         """
 
-        while self.app_thead_running:
+        while self.app_thread_running_flag:
             try:
                 self.server_conn.connect(PypePeer.SERVER_ADDR)
                 break
@@ -331,7 +332,7 @@ class PypePeer(object):
         root = App.get_running_app().root_sm.current_screen
         root.switch_to_call_layout()
 
-    @new_thread
+    @new_thread('plot_thread')
     def plot_latency(self):
         """Plotting latency graph (for testing puposes).
         """
@@ -352,7 +353,7 @@ class PypePeer(object):
         """
 
         # Signalling that GUI has terminated
-        self.app_thead_running = False
+        self.app_thread_running_flag = False
 
         # Leaving active call (if there is)
         if self.session and hasattr(self.session, 'video_capture'):
@@ -497,7 +498,7 @@ class Session(object):
 
         return conn
 
-    @new_thread
+    @new_thread('audio_send_thread')
     def audio_send_loop(self):
         """Loop for sending audio packets in parallel.
         """
@@ -505,7 +506,7 @@ class Session(object):
         while self.keep_sending_flag:
             self.send_audio()
 
-    @new_thread
+    @new_thread('audio_recv_thread')
     def audio_recv_loop(self):
         """Receives and plays audio in parallel.
         """
@@ -516,9 +517,11 @@ class Session(object):
             data_lst = get_jsons(raw_data)
 
             # Decodding and playing audio packets
+            username = App.get_running_app().root_sm.current_screen.username
             for data in data_lst:
-                audio_chunk = base64.b64decode(data['chunk'])
-                self.audio_output_stream.write(audio_chunk)
+                if data['src'] != username:
+                    audio_chunk = base64.b64decode(data['chunk'])
+                    self.audio_output_stream.write(audio_chunk)
 
     def send_audio(self):
         """Sends audio packet to multicast group.
@@ -546,7 +549,7 @@ class Session(object):
         Task(self.audio_conn, audio_msg,
              (self.audio_addr, Session.MULTICAST_PORT)).send_msg()
 
-    @new_thread
+    @new_thread('video_send_thread')
     def video_send_loop(self):
         """Loop for sending video packets in parallel.
         """
