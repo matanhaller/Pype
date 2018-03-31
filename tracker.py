@@ -53,8 +53,8 @@ class Tracker(object):
         stat_dct (dict): Dictionary mapping statistics type to value.
         tracking_dct (dict): Dictionary for tracking sequence numbers of
          packets yet to arrive.
-        xlst (list): Time values (for latency plot).
-        ylst (list): Latency values (for latency plot).
+        xlst (list): Time values (for framedrop plot).
+        ylst (list): Latency values (for framedrop plot).
     """
 
     def __init__(self):
@@ -125,17 +125,11 @@ class Tracker(object):
         # Calculating latency of received packet
         new_latency = time.time() - kwargs['timestamp']
 
-        # Adding time values to plot (for testing purposes)
-        self.xlst.append(time.time() - self.call_start)
-
         # Updating average latency
         delta_t = time.time() - self.last_update_dct['latency']
         weight = exp_weight(delta_t)
         self.stat_dct['latency'] = exp_moving_avg(
             self.stat_dct['latency'], new_latency, weight)
-
-        # Adding average latency values to plot (for testing purposes)
-        self.ylst.append(self.stat_dct['latency'] * 1000)
 
         self.last_update_dct['latency'] = time.time()
 
@@ -149,7 +143,7 @@ class Tracker(object):
         self.recvd_packets_framedrop += 1
 
         if self.first_packet_flag:
-        	# Adapting local sequence number with first packet that arrived
+                # Adapting local sequence number with first packet that arrived
             self.seq = kwargs['seq'] + 1
             self.first_packet_flag = False
         else:
@@ -192,6 +186,11 @@ class Tracker(object):
                 weight = exp_weight(delta_t)
                 self.stat_dct['framedrop'] = exp_moving_avg(
                     self.stat_dct['framedrop'], new_framedrop, weight)
+
+                # Adding time and average framedrop values to plot (for testing
+                # purposes)
+                self.xlst.append(time.time() - self.call_start)
+                self.ylst.append(self.stat_dct['framedrop'] * 100)
 
                 self.recvd_packets_framedrop = 0
                 self.lost_packets = 0
