@@ -2,7 +2,9 @@
 """
 
 # Imports
+import errno
 import socket
+import os
 import select
 import json
 import sys
@@ -11,40 +13,18 @@ import pyaudio
 import cv2
 import base64
 
+import ntplib
 import matplotlib.pyplot as plt
 
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.clock import mainthread
 from kivy.uix.label import Label
+from kivy.logger import Logger
 
 from task import Task
 from tracker import Tracker
 from decorators import *
-
-
-def get_jsons(raw_data):
-    """Retreives JSON objects string and parses it.
-
-    Args:
-        raw_data (str): Data to parse.
-
-    Returns:
-        list: Parsed JSON objects list.
-    """
-
-    decoder = json.JSONDecoder()
-    json_lst = []
-
-    while True:
-        try:
-            json_obj, end_index = decoder.raw_decode(raw_data)
-            json_lst.append(json_obj)
-            raw_data = raw_data[end_index:]
-        except ValueError:
-            break
-
-    return json_lst
 
 
 class PypePeer(object):
@@ -58,15 +38,18 @@ class PypePeer(object):
         gui_evt_conn (socket.socket): UDP connection with GUI component of app.
         logged_in (bool): Whether the peer has logged as a user.
         MAX_RECV_SIZE (int): Maximum number of bytes to receive at once. (static)
+        NTP_SERVER_ADDR (str): Description
         SERVER_ADDR (tuple): Server address info. (static)
         server_conn (socket.socket): Connection with server.
         session (Session): Session object of current call (defauls to None).
         session_buffer (list): Buffer of data yet to be updated in session.
         task_lst (list): List of all pending tasks.
+        temp_audio_lst (list): Description
     """
 
     SERVER_ADDR = ('10.0.0.8', 5050)
-    MAX_RECV_SIZE = 65536
+    MAX_RECV_SIZE = 16384
+    NTP_SERVER_ADDR = 'pool.ntp.org'
 
     def __init__(self):
         """Constructor method.
@@ -97,6 +80,9 @@ class PypePeer(object):
         """Peer mainloop method.
         """
 
+        # Syncing clock
+        PypePeer.ntp_sync()
+
         # Connecting to server
         self.server_connect()
 
@@ -120,7 +106,32 @@ class PypePeer(object):
             if self.session and hasattr(root, 'session_layout'):
 
                 # Updating statistics on screen
-                self.session.update_statistics()
+                self.session.update_stats()
+
+    @staticmethod
+    @new_thread('ntp_sync_thread')
+    def ntp_sync():
+        """Syncing the computer's clock with an external server via NTP protocol.
+        """
+
+        while True:
+            try:
+                # Connecting to NTP server
+                ntp_client = ntplib.NTPClient()
+
+                # Waiting for response from server
+                ntp_response = ntp_client.request(PypePeer.NTP_SERVER_ADDR)
+                time_obj = time.localtime(ntp_response.tx_time)
+
+                # Updating local time
+                os.system('date ' + time.strftime('%m-%d-%Y', time_obj))
+                os.system('time ' + time.strftime('%H:%M:%S', time_obj))
+                break
+            except Exception as e:
+                Logger.info('Time sync error: ' + str(e))
+                continue
+
+        Logger.info('Synced clock with network time.')
 
     @new_thread('server_connect_thread')
     def server_connect(self):
@@ -134,6 +145,32 @@ class PypePeer(object):
             except socket.error:
                 continue
 
+        Logger.info('Connected to server.')
+
+    @staticmethod
+    def get_jsons(raw_data):
+        """Retreives JSON objects string and parses it.
+
+        Args:
+            raw_data (str): Data to parse.
+
+        Returns:
+            list: Parsed JSON objects list.
+        """
+
+        decoder = json.JSONDecoder()
+        json_lst = []
+
+        while True:
+            try:
+                json_obj, end_index = decoder.raw_decode(raw_data)
+                json_lst.append(json_obj)
+                raw_data = raw_data[end_index:]
+            except ValueError:
+                break
+
+        return json_lst
+
     def handle_readables(self, read_lst):
         """Handles all readable connections in mainloop.
 
@@ -142,17 +179,22 @@ class PypePeer(object):
         """
 
         for conn in read_lst:
-            if conn.type == socket.SOCK_STREAM:
-                raw_data = conn.recv(PypePeer.MAX_RECV_SIZE)
-            else:
-                raw_data, addr = conn.recvfrom(PypePeer.MAX_RECV_SIZE)
+            try:
+                if conn:
+                    if conn.type == socket.SOCK_STREAM:
+                        raw_data = conn.recv(PypePeer.MAX_RECV_SIZE)
+                    else:
+                        raw_data, addr = conn.recvfrom(PypePeer.MAX_RECV_SIZE)
+            except socket.error as e:
+                Logger.info('Unexpected error: ' + str(e))
+                continue
 
             # Getting current app references
             app = App.get_running_app()
             root = app.root_sm.current_screen
 
             # Parsing JSON data
-            data_lst = get_jsons(raw_data)
+            data_lst = PypePeer.get_jsons(raw_data)
 
             # Handling messages
             for data in data_lst:
@@ -243,21 +285,21 @@ class PypePeer(object):
                     if data['subtype'] == 'leave':
                         self.task_lst.append(Task(self.server_conn, data))
                         self.leave_call()
+                    elif self.session:
+                        # Receiving video packets
+                        if data['subtype'] == 'video':
+                            root.session_layout.video_layout.update_frame(
+                                **data)
 
-                    # Receiving video packets
-                    elif data['subtype'] == 'video':
-                        root.session_layout.video_layout.update_frame(
-                            **data)
+                        # Sending chat message
+                        elif data['subtype'] == 'self_chat':
+                            self.session.send_chat(**data)
 
-                    # Sending chat message
-                    elif data['subtype'] == 'self_chat':
-                        self.session.send_chat(**data)
-
-                    # Receiving chat message
-                    elif data['subtype'] == 'chat':
-                        if data['src'] == root.username:
-                            data['src'] = 'You'
-                        root.session_layout.chat_layout.add_msg(**data)
+                        # Receiving chat message
+                        elif data['subtype'] == 'chat':
+                            if data['src'] == root.username:
+                                data['src'] = 'You'
+                            root.session_layout.chat_layout.add_msg(**data)
 
                 # Updating session layout with data from buffer
                 if hasattr(root, 'session_layout'):
@@ -305,11 +347,13 @@ class PypePeer(object):
         self.temp_audio_lst = []
 
         # Starting audio receiving thread
-        self.session.audio_recv_loop()
+        # self.session.audio_recv_loop()
 
         # Starting audio and video packet sending threads
-        self.session.audio_send_loop()
+        # self.session.audio_send_loop()
         self.session.video_send_loop()
+
+        Logger.info('Call started.')
 
     def leave_call(self):
         """Procedures to be done when leaving call.
@@ -317,8 +361,8 @@ class PypePeer(object):
 
         root = App.get_running_app().root_sm.current_screen
 
-        # Plotting latency graph (for testing puposes)
-        # self.plot_latency()
+        # Plotting framedrop graph (for testing puposes)
+        # self.plot_framedrop()
 
         # Removing multicast conns from connection list
         for conn in [self.session.audio_conn, self.session.video_conn, self.session.chat_conn]:
@@ -332,9 +376,11 @@ class PypePeer(object):
         root = App.get_running_app().root_sm.current_screen
         root.switch_to_call_layout()
 
+        Logger.info('Call ended.')
+
     @new_thread('plot_thread')
-    def plot_latency(self):
-        """Plotting latency graph (for testing puposes).
+    def plot_framedrop(self):
+        """Plotting average framedrop graph (for testing puposes).
         """
 
         root = App.get_running_app().root_sm.current_screen
@@ -342,11 +388,12 @@ class PypePeer(object):
         user = self.session.user_lst[0]
         if user == root.username:
             user = self.session.user_lst[1]
-            tracker = self.session.video_stat_dct[user]
-            plt.plot(tracker.xlst, tracker.ylst)
-            plt.xlabel('Time [s]')
-            plt.ylabel('latency [ms]')
-            plt.show()
+        tracker = self.session.video_stat_dct[user]
+        plt.plot(tracker.xlst, tracker.ylst)
+        plt.title('Average video framedrop as a function of time')
+        plt.xlabel('Time [s]')
+        plt.ylabel('Framedrop [%]')
+        plt.show()
 
     def terminate(self):
         """A series of procedures to be done on GUI terminate.
@@ -375,33 +422,39 @@ class Session(object):
         audio_addr (str): Multicast address used for audio transmission.
         AUDIO_CHUNK_SIZE (int): The number of audio samples in a single read.
         audio_conn (socket.socket): UDP connection used for audio transmission.
+        AUDIO_CONN_TIMEOUT (int): Number of second until audio connection timeouts.
         audio_input_stream (pyaudio.Stream): Audio input stream object.
         audio_interface (pyaudio.PyAudio): Interface for accessing audio methods.
+        AUDIO_MULTICAST_PORT (int): Multicast port allocated for audio transmission.
         audio_output_stream (pyaudio.Stream): Audio output stream object.
         AUDIO_SAMPLING_RATE (int): Audio sampling rate.
         audio_seq (int): Audio sequence number.
         audio_stat_dct (dict): Audio statistics dictionary.
         chat_addr (str): Multicast address used for chat messaging.
         chat_conn (socket.socket): UDP connection used for chat messaging.
+        CHAT_MULTICAST_PORT (int): Multicast port allocated for video transmission.
         INITIAL_SENDING_RATE (int): Initial sending rate.
         keep_sending_flag (bool): Flag indicating whether to keep sending audio and video packets.
         master (str): Currrent call master.
-        MULTICAST_PORT (int): Port for multicast communication. (static)
         task_lst (list): List of tasks to send (the same one that PypePeer has).
         user_lst (list): List of users in call.
         video_addr (str): Multicast address used for video transmission.
         video_capture (cv2.VideoCapture): Webcam video capture object.
         VIDEO_COMPRESSION_QUALITY (int): Quality of video JPEG compression. (static)
         video_conn (socket.socket): UDP connection used for video transmission.
+        VIDEO_MULTICAST_PORT (int): Multicast port allocated for chat messaging.
         video_seq (int): Video sequence number.
         video_stat_dct (dict): Video statistics dictionary.
     """
 
-    MULTICAST_PORT = 8192
-    AUDIO_SAMPLING_RATE = 44100  # 44.1 KHz
+    AUDIO_MULTICAST_PORT = 8192
+    VIDEO_MULTICAST_PORT = 8193
+    CHAT_MULTICAST_PORT = 8194
+    AUDIO_CONN_TIMEOUT = 1
+    AUDIO_SAMPLING_RATE = 8000  # 8 KHz
     AUDIO_CHUNK_SIZE = 1024
     VIDEO_COMPRESSION_QUALITY = 20
-    INITIAL_SENDING_RATE = 24  # 24 fps
+    INITIAL_SENDING_RATE = 30  # 30 fps
 
     def __init__(self, **kwargs):
         """Constructor method.
@@ -418,9 +471,13 @@ class Session(object):
         self.chat_addr = kwargs['addrs']['chat']
 
         # Creating connections for each multicast address
-        self.audio_conn = self.create_multicast_conn(self.audio_addr)
-        self.video_conn = self.create_multicast_conn(self.video_addr)
-        self.chat_conn = self.create_multicast_conn(self.chat_addr)
+        self.audio_conn = self.create_multicast_conn(
+            self.audio_addr, Session.AUDIO_MULTICAST_PORT)
+        self.audio_conn.settimeout(Session.AUDIO_CONN_TIMEOUT)
+        self.video_conn = self.create_multicast_conn(
+            self.video_addr, Session.VIDEO_MULTICAST_PORT)
+        self.chat_conn = self.create_multicast_conn(
+            self.chat_addr, Session.CHAT_MULTICAST_PORT)
 
         # Initializing audio and video sequence numbers
         self.audio_seq = 0
@@ -471,11 +528,12 @@ class Session(object):
             del self.audio_stat_dct[kwargs['name']]
             del self.video_stat_dct[kwargs['name']]
 
-    def create_multicast_conn(self, addr):
+    def create_multicast_conn(self, addr, port):
         """Creates UDP socket and adds it to multicast group.
 
         Args:
             addr (str): IP address of multicast group.
+            port (int): Port number of multicast group.
 
         Returns:
             socket.socket: UDP socket connected to multicast group.
@@ -484,7 +542,7 @@ class Session(object):
         # Creating socket object and binding to designated port
         conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         conn.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        conn.bind(('', Session.MULTICAST_PORT))
+        conn.bind(('', port))
 
         # Joining multicast group
         byte_addr = socket.inet_aton(addr)
@@ -513,13 +571,17 @@ class Session(object):
 
         while self.keep_sending_flag:
             # Receiving and parsing new audio packets
-            raw_data, addr = self.audio_conn.recvfrom(PypePeer.MAX_RECV_SIZE)
-            data_lst = get_jsons(raw_data)
+            try:
+                raw_data, addr = self.audio_conn.recvfrom(
+                    PypePeer.MAX_RECV_SIZE)
+            except socket.timeout:
+                continue
+            data_lst = PypePeer.get_jsons(raw_data)
 
             # Decodding and playing audio packets
             username = App.get_running_app().root_sm.current_screen.username
             for data in data_lst:
-                if data['src'] != username:
+                if data['src'] != username and data['src'] != self.master:
                     audio_chunk = base64.b64decode(data['chunk'])
                     self.audio_output_stream.write(audio_chunk)
 
@@ -547,7 +609,7 @@ class Session(object):
 
         # Sending audio packet
         Task(self.audio_conn, audio_msg,
-             (self.audio_addr, Session.MULTICAST_PORT)).send_msg()
+             (self.audio_addr, Session.AUDIO_MULTICAST_PORT)).send_msg()
 
     @new_thread('video_send_thread')
     def video_send_loop(self):
@@ -588,7 +650,7 @@ class Session(object):
 
             # Sending video packet
             Task(self.video_conn, video_msg,
-                 (self.video_addr, Session.MULTICAST_PORT)).send_msg()
+                 (self.video_addr, Session.VIDEO_MULTICAST_PORT)).send_msg()
 
     def send_chat(self, **kwargs):
         """Sends chat message to call multicast chat group.
@@ -599,11 +661,12 @@ class Session(object):
 
         kwargs['subtype'] = 'chat'
         kwargs['timestamp'] = None
-        self.task_lst.append(Task(self.chat_conn, kwargs,
-                                  (self.chat_addr, Session.MULTICAST_PORT)))
+        self.task_lst.append(
+            Task(self.chat_conn, kwargs,
+                 (self.chat_addr, Session.CHAT_MULTICAST_PORT)))
 
     @rate_limit(1)
-    def update_statistics(self):
+    def update_stats(self):
         """Updates statistics on screen.
         """
 
@@ -622,10 +685,19 @@ class Session(object):
         # Signalling video and audio sending threads to terminate
         self.keep_sending_flag = False
 
+        # Waiting for active threads to return
+        for thread in threading.enumerate():
+            if thread.name in ['audio_send_thread', 'audio_recv_thread', 'video_send_thread']:
+                thread.join()
+
         # Stopping self camera capture
         root = App.get_running_app().root_sm.current_screen
         if hasattr(root, 'session_layout'):
             root.session_layout.video_layout.ids.self_cap.play = False
+
+        # Closing active connections
+        for conn in [self.audio_conn, self.video_conn, self.chat_conn]:
+            conn.close()
 
         # Closing audio streams
         self.audio_input_stream.stop_stream()
