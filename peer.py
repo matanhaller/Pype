@@ -49,7 +49,7 @@ class PypePeer(object):
     """
 
     SERVER_ADDR = ('10.0.0.8', 5050)
-    MAX_RECV_SIZE = 16384
+    MAX_RECV_SIZE = 65536
     NTP_SERVER_ADDR = 'pool.ntp.org'
 
     def __init__(self):
@@ -417,7 +417,6 @@ class Session(object):
         audio_addr (str): Multicast address used for audio transmission.
         AUDIO_CHUNK_SIZE (int): The number of audio samples in a single read.
         audio_conn (socket.socket): UDP connection used for audio transmission.
-        AUDIO_CONN_TIMEOUT (int): Number of second until audio connection timeouts.
         audio_input_stream (pyaudio.Stream): Audio input stream object.
         audio_interface (pyaudio.PyAudio): Interface for accessing audio methods.
         AUDIO_MULTICAST_PORT (int): Multicast port allocated for audio transmission.
@@ -431,10 +430,10 @@ class Session(object):
         INITIAL_SENDING_RATE (int): Initial sending rate.
         keep_sending_flag (bool): Flag indicating whether to keep sending audio and video packets.
         master (str): Currrent call master.
+        MULTICAST_CONN_TIMEOUT (int): Timeout of audio and video multicast connections.
         task_lst (list): List of tasks to send (the same one that PypePeer has).
         user_lst (list): List of users in call.
         video_addr (str): Multicast address used for video transmission.
-        VIDEO_COMPRESSION_QUALITY (int): Quality of video JPEG compression. (static)
         video_conn (socket.socket): UDP connection used for video transmission.
         VIDEO_MULTICAST_PORT (int): Multicast port allocated for chat messaging.
         video_seq (int): Video sequence number.
@@ -445,10 +444,9 @@ class Session(object):
     AUDIO_MULTICAST_PORT = 8192
     VIDEO_MULTICAST_PORT = 8193
     CHAT_MULTICAST_PORT = 8194
-    AUDIO_CONN_TIMEOUT = 1
+    MULTICAST_CONN_TIMEOUT = 1
     AUDIO_SAMPLING_RATE = 8000  # 8 KHz
     AUDIO_CHUNK_SIZE = 1024
-    VIDEO_COMPRESSION_QUALITY = 20
     INITIAL_SENDING_RATE = 30  # 30 fps
 
     def __init__(self, **kwargs):
@@ -468,9 +466,10 @@ class Session(object):
         # Creating connections for each multicast address
         self.audio_conn = self.create_multicast_conn(
             self.audio_addr, Session.AUDIO_MULTICAST_PORT)
-        self.audio_conn.settimeout(Session.AUDIO_CONN_TIMEOUT)
+        self.audio_conn.settimeout(Session.MULTICAST_CONN_TIMEOUT)
         self.video_conn = self.create_multicast_conn(
             self.video_addr, Session.VIDEO_MULTICAST_PORT)
+        self.video_conn.settimeout(Session.MULTICAST_CONN_TIMEOUT)
         self.chat_conn = self.create_multicast_conn(
             self.chat_addr, Session.CHAT_MULTICAST_PORT)
 
@@ -640,32 +639,26 @@ class Session(object):
         """
 
         # Capturing video frame from webcam
-        ret, frame = self.webcam_stream.read()
+        encoded_frame = self.webcam_stream.read()
 
-        if True:
-            # Compressing frame using JPEG
-            ret, encoded_frame = cv2.imencode('.jpg', frame,
-                                              [cv2.IMWRITE_JPEG_QUALITY,
-                                               Session.VIDEO_COMPRESSION_QUALITY])
+        # Composing video packet
+        username = App.get_running_app().root_sm.current_screen.username
+        video_msg = {
+            'type': 'session',
+            'subtype': 'video',
+            'mode': 'content',
+            'timestamp': None,
+            'src': username,
+            'seq': self.video_seq,
+            'frame': base64.b64encode(encoded_frame)
+        }
 
-            # Composing video packet
-            username = App.get_running_app().root_sm.current_screen.username
-            video_msg = {
-                # 'type': 'session',
-                'subtype': 'video',
-                'mode': 'content',
-                'timestamp': None,
-                'src': username,
-                'seq': self.video_seq,
-                'frame': base64.b64encode(encoded_frame)
-            }
+        # Incrementing video packet sequence number
+        self.video_seq += 1
 
-            # Incrementing video packet sequence number
-            self.video_seq += 1
-
-            # Sending video packet
-            Task(self.video_conn, video_msg,
-                 (self.video_addr, Session.VIDEO_MULTICAST_PORT)).send_msg()
+        # Sending video packet
+        Task(self.video_conn, video_msg,
+             (self.video_addr, Session.VIDEO_MULTICAST_PORT)).send_msg()
 
     def send_chat(self, **kwargs):
         """Sends chat message to call multicast chat group.
