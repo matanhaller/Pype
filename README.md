@@ -3,8 +3,5 @@
 
 Current sprint goals:
 
-1. Measure video statistics (latency, packet loss).
-
-2. If performance is poor, improve it.
-
-3. Stabilize current isntance of app.
+1. Add audio & video synchronization.
+2. Start implementing congestion control mechanism.
