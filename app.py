@@ -602,7 +602,7 @@ class VideoLayout(FloatLayout):
             # Decoding JPEG frame
             frame = base64.b64decode(kwargs['frame'])
             frame = np.fromstring(frame, dtype='uint8')
-            decoded_frame = cv2.imdecode(frame, 1)
+            decoded_frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
             decoded_frame = cv2.flip(decoded_frame, 0)
             frame_texture = Texture.create(
                 size=(decoded_frame.shape[1], decoded_frame.shape[0]),
