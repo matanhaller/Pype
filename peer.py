@@ -342,11 +342,11 @@ class PypePeer(object):
         self.temp_audio_lst = []
 
         # Starting audio and video packets receiving threads
-        # self.session.audio_recv_loop()
+        self.session.audio_recv_loop()
         self.session.video_recv_loop()
 
         # Starting audio and video packet sending threads
-        # self.session.audio_send_loop()
+        self.session.audio_send_loop()
         self.session.video_send_loop()
 
         Logger.info('Call started.')
@@ -444,10 +444,10 @@ class Session(object):
     AUDIO_MULTICAST_PORT = 8192
     VIDEO_MULTICAST_PORT = 8193
     CHAT_MULTICAST_PORT = 8194
-    MULTICAST_CONN_TIMEOUT = 1
+    MULTICAST_CONN_TIMEOUT = 0.5
     AUDIO_SAMPLING_RATE = 8000  # 8 KHz
     AUDIO_CHUNK_SIZE = 1024
-    INITIAL_SENDING_RATE = 30  # 30 fps
+    INITIAL_SENDING_RATE = 24  # 24 fps
 
     def __init__(self, **kwargs):
         """Constructor method.
