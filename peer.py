@@ -25,6 +25,7 @@ from kivy.logger import Logger
 from task import Task
 from tracker import Tracker
 from decorators import *
+from webcamstream import WebcamStream
 
 
 class PypePeer(object):
@@ -286,13 +287,8 @@ class PypePeer(object):
                         self.task_lst.append(Task(self.server_conn, data))
                         self.leave_call()
                     elif self.session:
-                        # Receiving video packets
-                        if data['subtype'] == 'video':
-                            root.session_layout.video_layout.update_frame(
-                                **data)
-
                         # Sending chat message
-                        elif data['subtype'] == 'self_chat':
+                        if data['subtype'] == 'self_chat':
                             self.session.send_chat(**data)
 
                         # Receiving chat message
@@ -335,9 +331,8 @@ class PypePeer(object):
         # Switching app interface to session layout
         root.switch_to_session_layout(**kwargs)
 
-        # Adding multicast conns to connection list
-        for conn in [self.session.audio_conn, self.session.video_conn, self.session.chat_conn]:
-            self.conn_lst.append(conn)
+        # Adding chat multicast conn to connection list
+        self.conn_lst.append(self.session.chat_conn)
 
         # Waiting for session layout switch to be complete
         while not hasattr(root, 'session_layout'):
@@ -346,8 +341,9 @@ class PypePeer(object):
         # Creating list for temporary storing of received audio packets.
         self.temp_audio_lst = []
 
-        # Starting audio receiving thread
+        # Starting audio and video packets receiving threads
         # self.session.audio_recv_loop()
+        self.session.video_recv_loop()
 
         # Starting audio and video packet sending threads
         # self.session.audio_send_loop()
@@ -364,9 +360,8 @@ class PypePeer(object):
         # Plotting framedrop graph (for testing puposes)
         # self.plot_framedrop()
 
-        # Removing multicast conns from connection list
-        for conn in [self.session.audio_conn, self.session.video_conn, self.session.chat_conn]:
-            self.conn_lst.remove(conn)
+        # Removing chat conn from connection list
+        self.conn_lst.remove(self.session.chat_conn)
 
         # Closing session
         self.session.terminate()
@@ -439,12 +434,12 @@ class Session(object):
         task_lst (list): List of tasks to send (the same one that PypePeer has).
         user_lst (list): List of users in call.
         video_addr (str): Multicast address used for video transmission.
-        video_capture (cv2.VideoCapture): Webcam video capture object.
         VIDEO_COMPRESSION_QUALITY (int): Quality of video JPEG compression. (static)
         video_conn (socket.socket): UDP connection used for video transmission.
         VIDEO_MULTICAST_PORT (int): Multicast port allocated for chat messaging.
         video_seq (int): Video sequence number.
         video_stat_dct (dict): Video statistics dictionary.
+        webcam_stream (WebcamStream): Live webcam stream object.
     """
 
     AUDIO_MULTICAST_PORT = 8192
@@ -500,8 +495,8 @@ class Session(object):
             rate=Session.AUDIO_SAMPLING_RATE,
             output=True)
 
-        # Creating video capture
-        self.video_capture = cv2.VideoCapture(1)
+        # Creating webcam stream
+        self.webcam_stream = WebcamStream()
 
         self.keep_sending_flag = True
 
@@ -619,15 +614,35 @@ class Session(object):
         while self.keep_sending_flag:
             self.send_video()
 
+    @new_thread('video_recv_thread')
+    def video_recv_loop(self):
+        """Receives and displays video frames in parallel.
+        """
+
+        while self.keep_sending_flag:
+            # Receiving and parsing new video packets
+            try:
+                raw_data, addr = self.video_conn.recvfrom(
+                    PypePeer.MAX_RECV_SIZE)
+            except socket.timeout:
+                continue
+            data_lst = PypePeer.get_jsons(raw_data)
+
+            # Displaying new frames on screen
+            for data in data_lst:
+                root = App.get_running_app().root_sm.current_screen
+                root.session_layout.video_layout.update_frame(
+                    **data)
+
     @rate_limit(INITIAL_SENDING_RATE)
     def send_video(self):
         """Sends video packet to multicast group.
         """
 
         # Capturing video frame from webcam
-        ret, frame = self.video_capture.read()
+        ret, frame = self.webcam_stream.read()
 
-        if ret:
+        if True:
             # Compressing frame using JPEG
             ret, encoded_frame = cv2.imencode('.jpg', frame,
                                               [cv2.IMWRITE_JPEG_QUALITY,
@@ -636,7 +651,7 @@ class Session(object):
             # Composing video packet
             username = App.get_running_app().root_sm.current_screen.username
             video_msg = {
-                'type': 'session',
+                # 'type': 'session',
                 'subtype': 'video',
                 'mode': 'content',
                 'timestamp': None,
@@ -687,7 +702,8 @@ class Session(object):
 
         # Waiting for active threads to return
         for thread in threading.enumerate():
-            if thread.name in ['audio_send_thread', 'audio_recv_thread', 'video_send_thread']:
+            if thread.name in ['audio_send_thread', 'audio_recv_thread',
+                               'video_send_thread', 'video_recv_thread']:
                 thread.join()
 
         # Stopping self camera capture
@@ -706,5 +722,5 @@ class Session(object):
         self.audio_output_stream.close()
         self.audio_interface.terminate()
 
-        # Releasing video capture
-        self.video_capture.release()
+        # Terminating webcam stream
+        self.webcam_stream.terminate()
