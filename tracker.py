@@ -4,6 +4,7 @@
 # Imports
 import time
 
+import matplotlib.pyplot as plt
 from numpy import exp
 
 
@@ -53,8 +54,12 @@ class Tracker(object):
         stat_dct (dict): Dictionary mapping statistics type to value.
         tracking_dct (dict): Dictionary for tracking sequence numbers of
          packets yet to arrive.
-        xlst (list): Time values (for framedrop plot).
-        ylst (list): Latency values (for framedrop plot).
+        unit_dct (dict): Dictionary mapping each statistic to its unit of measurement.
+         (for plot)
+        x_val_dct (dict): Dictionary for tracking x-axis values of statistics.
+         (for plot)
+        y_val_dct (dict): Dictionary for tracking y-axis values of statistics.
+         (for plot)
     """
 
     def __init__(self):
@@ -62,8 +67,6 @@ class Tracker(object):
         """
 
         self.call_start = time.time()
-        self.xlst = []
-        self.ylst = []
         self.first_packet_flag = True
         self.seq = 0
         self.recvd_packets_framerate = 0
@@ -74,6 +77,13 @@ class Tracker(object):
             'latency': 0,
             'framedrop': 0
         }
+        self.unit_dct = {
+            'framerate': 'fps',
+            'latency': 'ms',
+            'framedrop': '%'
+        }
+        self.x_val_dct = {stat: [] for stat in self.stat_dct}
+        self.y_val_dct = {stat: [] for stat in self.stat_dct}
         self.tracking_dct = {}
         self.arrived_lst = []
         self.last_update_dct = {stat: time.time() for stat in self.stat_dct}
@@ -111,6 +121,12 @@ class Tracker(object):
             self.stat_dct['framerate'] = exp_moving_avg(
                 self.stat_dct['framerate'], new_framerate, weight)
 
+            # Adding time and framerate values to plot
+            self.x_val_dct['framerate'].append(
+                time.time() - self.call_start)
+            self.y_val_dct['framerate'].append(
+                self.stat_dct['framerate'])
+
             self.recvd_packets_framerate = 0
 
             self.last_update_dct['framerate'] = time.time()
@@ -130,6 +146,10 @@ class Tracker(object):
         weight = exp_weight(delta_t)
         self.stat_dct['latency'] = exp_moving_avg(
             self.stat_dct['latency'], new_latency, weight)
+
+        # Adding time and latency values to plot
+        self.x_val_dct['latency'].append(time.time() - self.call_start)
+        self.y_val_dct['latency'].append(self.stat_dct['latency'] * 1000)
 
         self.last_update_dct['latency'] = time.time()
 
@@ -187,12 +207,32 @@ class Tracker(object):
                 self.stat_dct['framedrop'] = exp_moving_avg(
                     self.stat_dct['framedrop'], new_framedrop, weight)
 
-                # Adding time and average framedrop values to plot (for testing
-                # purposes)
-                self.xlst.append(time.time() - self.call_start)
-                self.ylst.append(self.stat_dct['framedrop'] * 100)
+                # Adding time and framedrop values to plot
+                self.x_val_dct['framedrop'].append(
+                    time.time() - self.call_start)
+                self.y_val_dct['framedrop'].append(
+                    self.stat_dct['framedrop'] * 100)
 
                 self.recvd_packets_framedrop = 0
                 self.lost_packets = 0
 
                 self.last_update_dct['framedrop'] = time.time()
+
+    def plot_stats(self):
+        """Plots statistics as a 2D scatterplot with a connecting line.
+        """
+
+        rows, cols = len(self.stat_dct), 1
+        row_index = 1
+
+        for stat in self.stat_dct:
+            plt.subplot(rows, cols, row_index)
+            if row_index == 1:
+                plt.title('Call statistics')
+            plt.plot(self.x_val_dct[stat], self.y_val_dct[stat])
+            plt.ylabel('{} ({})'.format(stat, self.unit_dct[stat]))
+            row_index += 1
+
+        plt.xlabel('time (s)')
+
+        plt.show()
