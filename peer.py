@@ -14,7 +14,6 @@ import cv2
 import base64
 
 import ntplib
-import matplotlib.pyplot as plt
 
 from kivy.app import App
 from kivy.clock import Clock
@@ -357,9 +356,12 @@ class PypePeer(object):
         """
 
         root = App.get_running_app().root_sm.current_screen
+        username = root.username
 
-        # Plotting framedrop graph (for testing puposes)
-        # self.plot_framedrop()
+        # Plotting statistics graph
+        for user in self.session.user_lst:
+            if user != username:
+                self.session.video_stat_dct[user].plot_stats()
 
         # Removing chat conn from connection list
         self.conn_lst.remove(self.session.chat_conn)
@@ -369,27 +371,9 @@ class PypePeer(object):
         self.session = None
 
         # Switching to call layout
-        root = App.get_running_app().root_sm.current_screen
         root.switch_to_call_layout()
 
         Logger.info('Call ended.')
-
-    @new_thread('plot_thread')
-    def plot_framedrop(self):
-        """Plotting average framedrop graph (for testing puposes).
-        """
-
-        root = App.get_running_app().root_sm.current_screen
-
-        user = self.session.user_lst[0]
-        if user == root.username:
-            user = self.session.user_lst[1]
-        tracker = self.session.video_stat_dct[user]
-        plt.plot(tracker.xlst, tracker.ylst)
-        plt.title('Average video framedrop as a function of time')
-        plt.xlabel('Time [s]')
-        plt.ylabel('Framedrop [%]')
-        plt.show()
 
     def terminate(self):
         """A series of procedures to be done on GUI terminate.
