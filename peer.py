@@ -286,6 +286,7 @@ class PypePeer(object):
                     if data['subtype'] == 'leave':
                         self.task_lst.append(Task(self.server_conn, data))
                         self.leave_call()
+
                     elif self.session:
                         # Sending chat message
                         if data['subtype'] == 'self_chat':
@@ -434,6 +435,8 @@ class Session(object):
         task_lst (list): List of tasks to send (the same one that PypePeer has).
         user_lst (list): List of users in call.
         video_addr (str): Multicast address used for video transmission.
+        VIDEO_COMPRESSION_QUALITY (int): Value indicating the quality of the resultant frame
+         after JPEG compression.
         video_conn (socket.socket): UDP connection used for video transmission.
         VIDEO_MULTICAST_PORT (int): Multicast port allocated for chat messaging.
         video_seq (int): Video sequence number.
@@ -444,10 +447,11 @@ class Session(object):
     AUDIO_MULTICAST_PORT = 8192
     VIDEO_MULTICAST_PORT = 8193
     CHAT_MULTICAST_PORT = 8194
-    MULTICAST_CONN_TIMEOUT = 0.5
+    MULTICAST_CONN_TIMEOUT = 1
+    VIDEO_COMPRESSION_QUALITY = 20
     AUDIO_SAMPLING_RATE = 8000  # 8 KHz
     AUDIO_CHUNK_SIZE = 1024
-    INITIAL_SENDING_RATE = 24  # 24 fps
+    INITIAL_SENDING_RATE = 30  # 30 fps
 
     def __init__(self, **kwargs):
         """Constructor method.
@@ -572,7 +576,7 @@ class Session(object):
                 continue
             data_lst = PypePeer.get_jsons(raw_data)
 
-            # Decodding and playing audio packets
+            # Decoding and playing audio packets
             username = App.get_running_app().root_sm.current_screen.username
             for data in data_lst:
                 if data['src'] != username and data['src'] != self.master:
@@ -638,27 +642,33 @@ class Session(object):
         """Sends video packet to multicast group.
         """
 
-        # Capturing video frame from webcam
-        encoded_frame = self.webcam_stream.read()
+        # Reading video frame from webcam
+        frame = self.webcam_stream.read()
 
-        # Composing video packet
-        username = App.get_running_app().root_sm.current_screen.username
-        video_msg = {
-            'type': 'session',
-            'subtype': 'video',
-            'mode': 'content',
-            'timestamp': None,
-            'src': username,
-            'seq': self.video_seq,
-            'frame': base64.b64encode(encoded_frame)
-        }
+        # Compressing frame into JPEG format
+        ret, encoded_frame = cv2.imencode(
+            '.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY,
+                            Session.VIDEO_COMPRESSION_QUALITY])
 
-        # Incrementing video packet sequence number
-        self.video_seq += 1
+        if ret:
+            # Composing video packet
+            username = App.get_running_app().root_sm.current_screen.username
+            video_msg = {
+                'type': 'session',
+                'subtype': 'video',
+                'mode': 'content',
+                'timestamp': None,
+                'src': username,
+                'seq': self.video_seq,
+                'frame': base64.b64encode(encoded_frame)
+            }
 
-        # Sending video packet
-        Task(self.video_conn, video_msg,
-             (self.video_addr, Session.VIDEO_MULTICAST_PORT)).send_msg()
+            # Incrementing video packet sequence number
+            self.video_seq += 1
+
+            # Sending video packet
+            Task(self.video_conn, video_msg,
+                 (self.video_addr, Session.VIDEO_MULTICAST_PORT)).send_msg()
 
     def send_chat(self, **kwargs):
         """Sends chat message to call multicast chat group.
