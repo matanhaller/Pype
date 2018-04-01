@@ -143,7 +143,7 @@ class Tracker(object):
         self.recvd_packets_framedrop += 1
 
         if self.first_packet_flag:
-                # Adapting local sequence number with first packet that arrived
+            # Adapting local sequence number with first packet that arrived
             self.seq = kwargs['seq'] + 1
             self.first_packet_flag = False
         else:
