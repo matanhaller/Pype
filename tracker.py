@@ -218,14 +218,21 @@ class Tracker(object):
 
                 self.last_update_dct['framedrop'] = time.time()
 
-    def plot_stats(self):
+    def plot_stats(self, stats=None):
         """Plots statistics as a 2D scatterplot with a connecting line.
+
+        Args:
+            stats (list, optional): List of statistics to plot.
+             (defaults to all statistics)
         """
 
-        rows, cols = len(self.stat_dct), 1
+        if not stats:
+            stats = self.stat_dct.keys()
+
+        rows, cols = len(stats), 1
         row_index = 1
 
-        for stat in self.stat_dct:
+        for stat in stats:
             plt.subplot(rows, cols, row_index)
             if row_index == 1:
                 plt.title('Call statistics')
