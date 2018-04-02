@@ -15,6 +15,7 @@ class WebcamStream(object):
         cap (cv2.VideoCapture): Webcam video captuer object.
         frame (Image): Current frame.
         keep_streaming (bool): Indicates whether to keep reading frames in a seperate thread.
+        updated_frame (bool): Whether a frame hasn't been read yet.
     """
 
     COMPRESSION_QUALITY = 20
@@ -25,6 +26,7 @@ class WebcamStream(object):
 
         self.cap = cv2.VideoCapture(1)
         self.frame = self.cap.read()[1]
+        self.updated_frame = True
         self.keep_streaming = True
         self.update_loop()
 
@@ -37,15 +39,20 @@ class WebcamStream(object):
             ret, frame = self.cap.read()
             if ret:
                 self.frame = frame
+                self.updated_frame = True
 
     def read(self):
-        """Retrieves current frame from webcam.
+        """Retrieves current frame from webcam if it's updated.
 
         Returns:
             Image: The current frame.
         """
 
-        return self.frame
+        if self.updated_frame:
+            self.updated_frame = False
+            return self.frame
+
+        return None
 
     def terminate(self):
         """Terminates webcam stream.
