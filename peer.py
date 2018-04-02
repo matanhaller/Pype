@@ -291,11 +291,19 @@ class PypePeer(object):
                         if data['subtype'] == 'self_chat':
                             self.session.send_chat(**data)
 
-                        # Receiving chat message
-                        elif data['medium'] == 'chat':
-                            if data['src'] == root.username:
-                                data['src'] = 'You'
-                            root.session_layout.chat_layout.add_msg(**data)
+                        # Receiving content
+                        elif data['subtype'] == 'content':
+                            # Receiving chat message
+                            if data['medium'] == 'chat':
+                                if data['src'] == root.username:
+                                    data['src'] = 'You'
+                                root.session_layout.chat_layout.add_msg(**data)
+
+                        # Receiving control messages
+                        elif data['subtype'] == 'control':
+                            # Starting/stopping transmission
+                            if data['mode'] == 'state':
+                                pass
 
                 # Updating session layout with data from buffer
                 if hasattr(root, 'session_layout'):

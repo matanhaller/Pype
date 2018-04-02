@@ -1,3 +1,6 @@
+#:import dirname os.path.dirname
+#:import abspath os.path.abspath
+
 #<Button>:
 #	background_normal: ''
 #	background_down: ''
@@ -157,6 +160,7 @@
 <PeerVideoDisplay>:
 	Image:
 		id: frame
+		source: dirname(abspath(__main__)) + 'pics\blank.png'
 		size_hint: 1, 1
 		pos_hint: {'x': 0, 'y': 0}
 		keep_ratio: False
