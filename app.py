@@ -630,7 +630,7 @@ class SelfVideoDisplay(Camera):
     pass
 
 
-class PeerVideoDisplay(BoxLayout):
+class PeerVideoDisplay(FloatLayout):
 
     """Display of other peers' video capture (see .kv file for structure).
 
@@ -650,19 +650,19 @@ class PeerVideoDisplay(BoxLayout):
 
         self.user = user
         self.show_stats = show_stats
-        BoxLayout.__init__(self)
+        FloatLayout.__init__(self)
         self.stat_lbl = StatisticsLabel(latency=0)
         if self.show_stats:
-            self.ids.display.add_widget(self.stat_lbl)
+            self.add_widget(self.stat_lbl)
 
     def flip_stats(self):
         """Showing/hiding statistics label.
         """
 
         if not self.show_stats:
-            self.ids.display.add_widget(self.stat_lbl)
+            self.add_widget(self.stat_lbl)
         else:
-            self.ids.display.remove_widget(self.stat_lbl)
+            self.remove_widget(self.stat_lbl)
 
         self.show_stats = not self.show_stats
 
@@ -861,9 +861,6 @@ class PypeApp(App):
         Returns:
             ScreenManager: Root screen manager.
         """
-
-        # Adjusting maximum callback iterations at the end of frame
-        Clock.max_iteration = 20
 
         # Setting window size
         Config.set('graphics', 'width', PypeApp.WINDOW_WIDTH)

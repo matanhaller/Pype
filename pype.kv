@@ -152,19 +152,16 @@
 	pos_hint: {'x': 0.75, 'y': 0}		
 
 <PeerVideoDisplay>:
-	orientation: 'vertical'
-	FloatLayout:
-		id: display
-		size_hint_y: 0.9
-		Image:
-			id: frame
-			size_hint: 1, 1
-			pos_hint: {'x': 0, 'y': 0}
-			keep_ratio: False
-			allow_stretch: True
+	Image:
+		id: frame
+		size_hint: 1, 1
+		pos_hint: {'x': 0, 'y': 0}
+		keep_ratio: False
+		allow_stretch: True
 	Label:
 		text: root.user
 		size_hint_y: 0.1
+		pos_hint: {'x': 0, 'y': 0}
 
 <StatisticsLabel>:
 	size_hint: 0.25, 0.25
