@@ -1,12 +1,6 @@
-#:import dirname os.path.dirname
-#:import abspath os.path.abspath
-
 #<Button>:
 #	background_normal: ''
 #	background_down: ''
-
-<ToggleButton>:
-	state: 'normal'
 
 <ScrollView>:
 	size_hint_y: 0.8
@@ -15,6 +9,9 @@
 <GridLayout>:
 	size_hint_y: None
 	height: 0
+
+<ToggleButton>:
+	state: 'normal'
 
 <EntryScreen>:
 	id: entry_screen
@@ -160,7 +157,7 @@
 <PeerVideoDisplay>:
 	Image:
 		id: frame
-		source: dirname(abspath(__main__)) + 'pics\blank.png'
+		source: 'blank.png'
 		size_hint: 1, 1
 		pos_hint: {'x': 0, 'y': 0}
 		keep_ratio: False
@@ -219,11 +216,13 @@
 	BoxLayout:
 		orientation: 'vertical'
 		ToggleButton:
+			id: audio
 			text: 'Audio'
-			# on_state: root.on_medium_toggle_btn_press('audio')
+			on_press: root.on_medium_toggle_btn_press('audio')
 		ToggleButton:
+			id: video
 			text: 'Video'
-			# on_state: root.on_medium_toggle_btn_press('video')
+			on_press: root.on_medium_toggle_btn_press('video')
 	Button:
 		text: 'Statistics'
 		on_press: root.on_stat_btn_press()
