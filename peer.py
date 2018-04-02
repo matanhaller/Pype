@@ -39,6 +39,7 @@ class PypePeer(object):
         logged_in (bool): Whether the peer has logged as a user.
         MAX_RECV_SIZE (int): Maximum number of bytes to receive at once. (static)
         NTP_SERVER_ADDR (str): Description
+        reset_frame_evt (ClockEvent): Frame resetting event called when a user stops transmitting video.
         SERVER_ADDR (tuple): Server address info. (static)
         server_conn (socket.socket): Connection with server.
         session (Session): Session object of current call (defauls to None).
@@ -302,8 +303,23 @@ class PypePeer(object):
                         # Receiving control messages
                         elif data['subtype'] == 'control':
                             # Starting/stopping transmission
-                            if data['mode'] == 'state':
-                                pass
+                            if data['mode'] == 'self_state':
+                                self.session.send_flag_dct[data['medium']] = \
+                                    not self.session.send_flag_dct[
+                                        data['medium']]
+                                if data['medium'] == 'video':
+                                    data['mode'] = 'state'
+                                    self.task_lst.append(Task(self.session.control_conn_dct['video'], data, (
+                                        self.session.multicast_addr_dct['video'], Session.MULTICAST_CONTROL_PORT)))
+
+                            # Other peer video transmission stop
+                            elif data['mode'] == 'state':
+                                if data['src'] != root.username:
+                                    if data['state'] == 'down':
+                                        self.reset_frame_evt = Clock.schedule_interval(lambda dt: root.session_layout.video_layout.reset_frame(data[
+                                            'src']), 0.1)
+                                    else:
+                                        self.reset_frame_evt.cancel()
 
                 # Updating session layout with data from buffer
                 if hasattr(root, 'session_layout'):
@@ -342,6 +358,10 @@ class PypePeer(object):
         # Adding chat multicast conn to connection list
         self.conn_lst.append(self.session.content_conn_dct['chat'])
 
+        # Adding control conns to connection list
+        for conn in self.session.control_conn_dct.values():
+            self.conn_lst.append(conn)
+
         # Waiting for session layout switch to be complete
         while not hasattr(root, 'session_layout'):
             pass
@@ -373,6 +393,10 @@ class PypePeer(object):
 
         # Removing chat conn from connection list
         self.conn_lst.remove(self.session.content_conn_dct['chat'])
+
+        # Removing control conns from connection list
+        for conn in self.session.control_conn_dct.values():
+            self.conn_lst.remove(conn)
 
         # Closing session
         self.session.terminate()
@@ -414,6 +438,7 @@ class Session(object):
         AUDIO_SAMPLING_RATE (int): Audio sampling rate.
         audio_stat_dct (dict): Audio statistics dictionary.
         content_conn_dct (dict): Dictionary of connections used for content transmission.
+        control_conn_dct (dict): Dictionary of connections used for control transmission.
         INITIAL_SENDING_RATE (int): Initial sending rate.
         keep_sending_flag (bool): Flag indicating whether to keep sending audio and video packets.
         master (str): Currrent call master.
@@ -421,6 +446,7 @@ class Session(object):
         MULTICAST_CONN_TIMEOUT (int): Timeout of audio and video multicast connections.
         MULTICAST_CONTENT_PORT (int): Port allocated for content transmission (audio, video and chat).
         MULTICAST_CONTROL_PORT (int): Port allocated for control transmission (feedback, cryptographic info etc.).
+        send_flag_dct (dict): Dictioanry with boolean values indicating whether to transmit audio and video packets.
         seq_dct (dict): Dictionary of audio and video sequence numbers.
         task_lst (list): List of tasks to send (the same one that PypePeer has).
         user_lst (list): List of users in call.
@@ -455,10 +481,14 @@ class Session(object):
         self.content_conn_dct = {medium: self.create_multicast_conn(self.multicast_addr_dct[medium],
                                                                     Session.MULTICAST_CONTENT_PORT)
                                  for medium in self.multicast_addr_dct}
-        self.content_conn_dct['audio'].settimeout(
-            Session.MULTICAST_CONN_TIMEOUT)
-        self.content_conn_dct['video'].settimeout(
-            Session.MULTICAST_CONN_TIMEOUT)
+        for medium in ['audio', 'video']:
+            self.content_conn_dct[medium].settimeout(
+                Session.MULTICAST_CONN_TIMEOUT)
+
+        # Creating control connections for each multicast address
+        self.control_conn_dct = {medium: self.create_multicast_conn(self.multicast_addr_dct[medium],
+                                                                    Session.MULTICAST_CONTROL_PORT)
+                                 for medium in self.multicast_addr_dct}
 
         # Initializing audio and video sequence numbers
         self.seq_dct = {
@@ -487,6 +517,10 @@ class Session(object):
         self.webcam_stream = WebcamStream()
 
         self.keep_sending_flag = True
+        self.send_flag_dct = {
+            'audio': True,
+            'video': True
+        }
 
         self.task_lst = kwargs['task_lst']
 
@@ -545,7 +579,8 @@ class Session(object):
         """
 
         while self.keep_sending_flag:
-            self.send_audio()
+            if self.send_flag_dct['audio']:
+                self.send_audio()
 
     @new_thread('audio_recv_thread')
     def audio_recv_loop(self):
@@ -600,7 +635,8 @@ class Session(object):
         """
 
         while self.keep_sending_flag:
-            self.send_video()
+            if self.send_flag_dct['video']:
+                self.send_video()
 
     @new_thread('video_recv_thread')
     def video_recv_loop(self):
@@ -703,7 +739,7 @@ class Session(object):
             root.session_layout.video_layout.ids.self_cap.play = False
 
         # Closing active connections
-        for conn in self.content_conn_dct.values():
+        for conn in self.content_conn_dct.values() + self.control_conn_dct.values():
             conn.close()
 
         # Closing audio streams

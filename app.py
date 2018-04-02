@@ -621,6 +621,15 @@ class VideoLayout(FloatLayout):
                 tracker = peer.session.video_stat_dct[kwargs['src']]
                 tracker.update(**kwargs)
 
+    def reset_frame(self, user):
+        """Resets a user's video display to the blank picture.
+
+        Args:
+            user (str): Username of user to reset its display.
+        """
+
+        self.video_display_dct[user].ids.frame.reload()
+
 
 class SelfVideoDisplay(Camera):
 
@@ -806,11 +815,17 @@ class SessionFooter(BoxLayout):
         """
 
         app = App.get_running_app()
+        username = app.root_sm.current_screen.username
+
+        state = self.ids[medium].state
+
         app.send_gui_evt({
             'type': 'session',
             'subtype': 'control',
-            'mode': 'state',
-            'medium': medium
+            'mode': 'self_state',
+            'src': username,
+            'medium': medium,
+            'state': state
         })
 
     def on_stat_btn_press(self):
