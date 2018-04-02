@@ -432,7 +432,7 @@ class Session(object):
     VIDEO_MULTICAST_PORT = 8193
     CHAT_MULTICAST_PORT = 8194
     MULTICAST_CONN_TIMEOUT = 1
-    VIDEO_COMPRESSION_QUALITY = 20
+    VIDEO_COMPRESSION_QUALITY = 25
     AUDIO_SAMPLING_RATE = 8000  # 8 KHz
     AUDIO_CHUNK_SIZE = 1024
     INITIAL_SENDING_RATE = 30  # 30 fps
@@ -626,8 +626,10 @@ class Session(object):
         """Sends video packet to multicast group.
         """
 
-        # Reading video frame from webcam
-        frame = self.webcam_stream.read()
+        # Reading a new video frame from webcam
+        frame = None
+        while frame is None:
+            frame = self.webcam_stream.read()
 
         # Compressing frame into JPEG format
         ret, encoded_frame = cv2.imencode(
