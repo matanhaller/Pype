@@ -26,14 +26,18 @@ class Tracker(object):
          packets yet to arrive.
         unit_dct (dict): Dictionary mapping each statistic to its unit of measurement.
          (for plot)
+        user (str): Username of user whose statistics are being tracked.
         x_val_dct (dict): Dictionary for tracking x-axis values of statistics.
          (for plot)
         y_val_dct (dict): Dictionary for tracking y-axis values of statistics.
          (for plot)
     """
 
-    def __init__(self):
+    def __init__(self, user):
         """Constructor method
+
+        Args:
+            user (str): Username of user whose statistics are to be tracked.
         """
 
         self.call_start = time.time()
@@ -57,6 +61,7 @@ class Tracker(object):
         self.tracking_dct = {}
         self.arrived_lst = []
         self.last_update_dct = {stat: time.time() for stat in self.stat_dct}
+        self.user = user
 
     def update(self, **kwargs):
         """Updates all statistics based on new packet.
@@ -75,34 +80,34 @@ class Tracker(object):
         self.update_framedrop(**kwargs)
 
     @staticmethod
-    def Tracker.exp_weight(delta_t):
-	    """Calculate weight for exponential moving average based on time difference.
+    def exp_weight(delta_t):
+        """Calculate weight for exponential moving average based on time difference.
 
-	    Args:
-	        delta_t (float): Length of time interval.
+        Args:
+            delta_t (float): Length of time interval.
 
-	    Returns:
-	        float: Resultant weight.
-	    """
+        Returns:
+            float: Resultant weight.
+        """
 
-	    return 1 - exp(-delta_t)
+        return 1 - exp(-delta_t)
 
-	@staticmethod
-	def Tracker.exp_moving_avg(avg, val, weight):
-	    """Calculates exponential moving average.
+    @staticmethod
+    def exp_moving_avg(avg, val, weight):
+        """Calculates exponential moving average.
 
-	    Args:
-	        avg (float): Current average.
-	        val (float): New value.
-	        weight (float): Weight for new average calculation.
+        Args:
+            avg (float): Current average.
+            val (float): New value.
+            weight (float): Weight for new average calculation.
 
-	    Returns:
-	        float: The new average.
-	    """
+        Returns:
+            float: The new average.
+        """
 
-	    if avg == 0:
-	        return val
-	    return weight * val + (1 - weight) * avg
+        if avg == 0:
+            return val
+        return weight * val + (1 - weight) * avg
 
     def update_framerate(self, **kwargs):
         """Measures and updates average framerate.
@@ -235,7 +240,7 @@ class Tracker(object):
         for stat in stats:
             plt.subplot(rows, cols, row_index)
             if row_index == 1:
-                plt.title('Call statistics')
+                plt.title('Call statistics: ' + self.user)
             plt.plot(self.x_val_dct[stat], self.y_val_dct[stat])
             plt.ylabel('{} ({})'.format(stat, self.unit_dct[stat]))
             row_index += 1

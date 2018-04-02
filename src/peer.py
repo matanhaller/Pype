@@ -292,7 +292,7 @@ class PypePeer(object):
                             self.session.send_chat(**data)
 
                         # Receiving chat message
-                        elif data['subtype'] == 'chat':
+                        elif data['medium'] == 'chat':
                             if data['src'] == root.username:
                                 data['src'] = 'You'
                             root.session_layout.chat_layout.add_msg(**data)
@@ -332,7 +332,7 @@ class PypePeer(object):
         root.switch_to_session_layout(**kwargs)
 
         # Adding chat multicast conn to connection list
-        self.conn_lst.append(self.session.chat_conn)
+        self.conn_lst.append(self.session.content_conn_dct['chat'])
 
         # Waiting for session layout switch to be complete
         while not hasattr(root, 'session_layout'):
@@ -364,7 +364,7 @@ class PypePeer(object):
                 self.session.video_stat_dct[user].plot_stats()
 
         # Removing chat conn from connection list
-        self.conn_lst.remove(self.session.chat_conn)
+        self.conn_lst.remove(self.session.content_conn_dct['chat'])
 
         # Closing session
         self.session.terminate()
@@ -399,41 +399,34 @@ class Session(object):
     """Class used for management of current call.
 
     Attributes:
-        audio_addr (str): Multicast address used for audio transmission.
         AUDIO_CHUNK_SIZE (int): The number of audio samples in a single read.
-        audio_conn (socket.socket): UDP connection used for audio transmission.
         audio_input_stream (pyaudio.Stream): Audio input stream object.
         audio_interface (pyaudio.PyAudio): Interface for accessing audio methods.
-        AUDIO_MULTICAST_PORT (int): Multicast port allocated for audio transmission.
         audio_output_stream (pyaudio.Stream): Audio output stream object.
         AUDIO_SAMPLING_RATE (int): Audio sampling rate.
-        audio_seq (int): Audio sequence number.
         audio_stat_dct (dict): Audio statistics dictionary.
-        chat_addr (str): Multicast address used for chat messaging.
-        chat_conn (socket.socket): UDP connection used for chat messaging.
-        CHAT_MULTICAST_PORT (int): Multicast port allocated for video transmission.
+        content_conn_dct (dict): Dictionary of connections used for content transmission.
         INITIAL_SENDING_RATE (int): Initial sending rate.
         keep_sending_flag (bool): Flag indicating whether to keep sending audio and video packets.
         master (str): Currrent call master.
+        multicast_addr_dct (dict): Dictionary of multicast addresses allocated by server.
         MULTICAST_CONN_TIMEOUT (int): Timeout of audio and video multicast connections.
+        MULTICAST_CONTENT_PORT (int): Port allocated for content transmission (audio, video and chat).
+        MULTICAST_CONTROL_PORT (int): Port allocated for control transmission (feedback, cryptographic info etc.).
+        seq_dct (dict): Dictionary of audio and video sequence numbers.
         task_lst (list): List of tasks to send (the same one that PypePeer has).
         user_lst (list): List of users in call.
-        video_addr (str): Multicast address used for video transmission.
         VIDEO_COMPRESSION_QUALITY (int): Value indicating the quality of the resultant frame
          after JPEG compression.
-        video_conn (socket.socket): UDP connection used for video transmission.
-        VIDEO_MULTICAST_PORT (int): Multicast port allocated for chat messaging.
-        video_seq (int): Video sequence number.
         video_stat_dct (dict): Video statistics dictionary.
         webcam_stream (WebcamStream): Live webcam stream object.
     """
 
-    AUDIO_MULTICAST_PORT = 8192
-    VIDEO_MULTICAST_PORT = 8193
-    CHAT_MULTICAST_PORT = 8194
+    MULTICAST_CONTROL_PORT = 8192
+    MULTICAST_CONTENT_PORT = 8193
     MULTICAST_CONN_TIMEOUT = 1
-    VIDEO_COMPRESSION_QUALITY = 25
-    AUDIO_SAMPLING_RATE = 8000  # 8 KHz
+    VIDEO_COMPRESSION_QUALITY = 50
+    AUDIO_SAMPLING_RATE = 16000  # 16 KHz
     AUDIO_CHUNK_SIZE = 1024
     INITIAL_SENDING_RATE = 30  # 30 fps
 
@@ -447,38 +440,38 @@ class Session(object):
         self.master = kwargs['master']
         self.user_lst = kwargs['user_lst']
 
-        self.audio_addr = kwargs['addrs']['audio']
-        self.video_addr = kwargs['addrs']['video']
-        self.chat_addr = kwargs['addrs']['chat']
+        # Storing multicast addresses allocated by server
+        self.multicast_addr_dct = kwargs['addrs']
 
-        # Creating connections for each multicast address
-        self.audio_conn = self.create_multicast_conn(
-            self.audio_addr, Session.AUDIO_MULTICAST_PORT)
-        self.audio_conn.settimeout(Session.MULTICAST_CONN_TIMEOUT)
-        self.video_conn = self.create_multicast_conn(
-            self.video_addr, Session.VIDEO_MULTICAST_PORT)
-        self.video_conn.settimeout(Session.MULTICAST_CONN_TIMEOUT)
-        self.chat_conn = self.create_multicast_conn(
-            self.chat_addr, Session.CHAT_MULTICAST_PORT)
+        # Creating content connections for each multicast address
+        self.content_conn_dct = {medium: self.create_multicast_conn(self.multicast_addr_dct[medium],
+                                                                    Session.MULTICAST_CONTENT_PORT)
+                                 for medium in self.multicast_addr_dct}
+        self.content_conn_dct['audio'].settimeout(
+            Session.MULTICAST_CONN_TIMEOUT)
+        self.content_conn_dct['video'].settimeout(
+            Session.MULTICAST_CONN_TIMEOUT)
 
         # Initializing audio and video sequence numbers
-        self.audio_seq = 0
-        self.video_seq = 0
+        self.seq_dct = {
+            'audio': 0,
+            'video': 0
+        }
 
         # Initializing audio and video statistics dictionaries
-        self.audio_stat_dct = {user: Tracker() for user in self.user_lst}
-        self.video_stat_dct = {user: Tracker() for user in self.user_lst}
+        self.audio_stat_dct = {user: Tracker(user) for user in self.user_lst}
+        self.video_stat_dct = {user: Tracker(user) for user in self.user_lst}
 
         # Initializing audio stream
         self.audio_interface = pyaudio.PyAudio()
         self.audio_input_stream = self.audio_interface.open(
             format=pyaudio.paInt16,
-            channels=1,
+            channels=2,
             rate=Session.AUDIO_SAMPLING_RATE,
             input=True)
         self.audio_output_stream = self.audio_interface.open(
             format=pyaudio.paInt16,
-            channels=1,
+            channels=2,
             rate=Session.AUDIO_SAMPLING_RATE,
             output=True)
 
@@ -554,7 +547,7 @@ class Session(object):
         while self.keep_sending_flag:
             # Receiving and parsing new audio packets
             try:
-                raw_data, addr = self.audio_conn.recvfrom(
+                raw_data, addr = self.content_conn_dct['audio'].recvfrom(
                     PypePeer.MAX_RECV_SIZE)
             except socket.timeout:
                 continue
@@ -578,20 +571,20 @@ class Session(object):
         username = App.get_running_app().root_sm.current_screen.username
         audio_msg = {
             'type': 'session',
-            'subtype': 'audio',
-            'mode': 'content',
+            'subtype': 'content',
+            'medium': 'audio',
             'timestamp': None,
             'src': username,
-            'seq': self.audio_seq,
+            'seq': self.seq_dct['audio'],
             'chunk': base64.b64encode(audio_chunk)
         }
 
         # Incrementing audio packet sequence number
-        self.audio_seq += 1
+        self.seq_dct['audio'] += 1
 
         # Sending audio packet
-        Task(self.audio_conn, audio_msg,
-             (self.audio_addr, Session.AUDIO_MULTICAST_PORT)).send_msg()
+        Task(self.content_conn_dct['audio'], audio_msg,
+             (self.multicast_addr_dct['audio'], Session.MULTICAST_CONTENT_PORT)).send_msg()
 
     @new_thread('video_send_thread')
     def video_send_loop(self):
@@ -609,7 +602,7 @@ class Session(object):
         while self.keep_sending_flag:
             # Receiving and parsing new video packets
             try:
-                raw_data, addr = self.video_conn.recvfrom(
+                raw_data, addr = self.content_conn_dct['video'].recvfrom(
                     PypePeer.MAX_RECV_SIZE)
             except socket.timeout:
                 continue
@@ -641,20 +634,20 @@ class Session(object):
             username = App.get_running_app().root_sm.current_screen.username
             video_msg = {
                 'type': 'session',
-                'subtype': 'video',
-                'mode': 'content',
+                'subtype': 'content',
+                'medium': 'video',
                 'timestamp': None,
                 'src': username,
-                'seq': self.video_seq,
+                'seq': self.seq_dct['video'],
                 'frame': base64.b64encode(encoded_frame)
             }
 
             # Incrementing video packet sequence number
-            self.video_seq += 1
+            self.seq_dct['video'] += 1
 
             # Sending video packet
-            Task(self.video_conn, video_msg,
-                 (self.video_addr, Session.VIDEO_MULTICAST_PORT)).send_msg()
+            Task(self.content_conn_dct['video'], video_msg,
+                 (self.multicast_addr_dct['video'], Session.MULTICAST_CONTENT_PORT)).send_msg()
 
     def send_chat(self, **kwargs):
         """Sends chat message to call multicast chat group.
@@ -663,11 +656,12 @@ class Session(object):
             **kwargs: Keyword arguments supplied in dictionary form.
         """
 
-        kwargs['subtype'] = 'chat'
+        kwargs['subtype'] = 'content'
+        kwargs['medium'] = 'chat'
         kwargs['timestamp'] = None
         self.task_lst.append(
-            Task(self.chat_conn, kwargs,
-                 (self.chat_addr, Session.CHAT_MULTICAST_PORT)))
+            Task(self.content_conn_dct['chat'], kwargs,
+                 (self.multicast_addr_dct['chat'], Session.MULTICAST_CONTENT_PORT)))
 
     @rate_limit(1)
     def update_stats(self):
@@ -701,7 +695,7 @@ class Session(object):
             root.session_layout.video_layout.ids.self_cap.play = False
 
         # Closing active connections
-        for conn in [self.audio_conn, self.video_conn, self.chat_conn]:
+        for conn in self.content_conn_dct.values():
             conn.close()
 
         # Closing audio streams

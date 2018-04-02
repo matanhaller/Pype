@@ -672,6 +672,7 @@ class StatisticsLabel(Label):
 
     Attributes:
         FORMAT_DCT (dict): Dictionary mapping each data type to its format.
+        text (TYPE): Description
     """
 
     FORMAT_DCT = {
@@ -796,6 +797,21 @@ class SessionFooter(BoxLayout):
         self.elapsed_time += 1
         self.ids.counter.text = '{:0=2d}:{:0=2d}'.format(
             self.elapsed_time / 60, self.elapsed_time % 60)
+
+    def on_medium_toggle_btn_press(self, medium):
+        """Signals communication component to start/stop transmitting the given medium..
+
+        Args:
+            medium (str): Medium to start/stop transmitting (audio/video).
+        """
+
+        app = App.get_running_app()
+        app.send_gui_evt({
+            'type': 'session',
+            'subtype': 'control',
+            'mode': 'state',
+            'medium': medium
+        })
 
     def on_stat_btn_press(self):
         """Shows/hides call statistics from display.

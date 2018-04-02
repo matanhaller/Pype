@@ -2,6 +2,9 @@
 #	background_normal: ''
 #	background_down: ''
 
+<ToggleButton>:
+	state: 'normal'
+
 <ScrollView>:
 	size_hint_y: 0.8
 	do_scroll_x: False
@@ -209,6 +212,14 @@
 	Label:
 		id: counter
 		text: '00:00'
+	BoxLayout:
+		orientation: 'vertical'
+		ToggleButton:
+			text: 'Audio'
+			# on_state: root.on_medium_toggle_btn_press('audio')
+		ToggleButton:
+			text: 'Video'
+			# on_state: root.on_medium_toggle_btn_press('video')
 	Button:
 		text: 'Statistics'
 		on_press: root.on_stat_btn_press()
