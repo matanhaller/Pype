@@ -8,36 +8,6 @@ import matplotlib.pyplot as plt
 from numpy import exp
 
 
-def exp_weight(delta_t):
-    """Calculate weight for exponential moving average based on time difference.
-
-    Args:
-        delta_t (float): Length of time interval.
-
-    Returns:
-        float: Resultant weight.
-    """
-
-    return 1 - exp(-delta_t)
-
-
-def exp_moving_avg(avg, val, weight):
-    """Calculates exponential moving average.
-
-    Args:
-        avg (float): Current average.
-        val (float): New value.
-        weight (float): Weight for new average calculation.
-
-    Returns:
-        float: The new average.
-    """
-
-    if avg == 0:
-        return val
-    return weight * val + (1 - weight) * avg
-
-
 class Tracker(object):
 
     """Statistics class file.
@@ -104,6 +74,36 @@ class Tracker(object):
         # Updating framedrop
         self.update_framedrop(**kwargs)
 
+    @staticmethod
+    def Tracker.exp_weight(delta_t):
+	    """Calculate weight for exponential moving average based on time difference.
+
+	    Args:
+	        delta_t (float): Length of time interval.
+
+	    Returns:
+	        float: Resultant weight.
+	    """
+
+	    return 1 - exp(-delta_t)
+
+	@staticmethod
+	def Tracker.exp_moving_avg(avg, val, weight):
+	    """Calculates exponential moving average.
+
+	    Args:
+	        avg (float): Current average.
+	        val (float): New value.
+	        weight (float): Weight for new average calculation.
+
+	    Returns:
+	        float: The new average.
+	    """
+
+	    if avg == 0:
+	        return val
+	    return weight * val + (1 - weight) * avg
+
     def update_framerate(self, **kwargs):
         """Measures and updates average framerate.
 
@@ -117,8 +117,8 @@ class Tracker(object):
         if delta_t > 0.5:
             # Updating average framerate
             new_framerate = self.recvd_packets_framerate / delta_t
-            weight = exp_weight(delta_t)
-            self.stat_dct['framerate'] = exp_moving_avg(
+            weight = Tracker.exp_weight(delta_t)
+            self.stat_dct['framerate'] = Tracker.exp_moving_avg(
                 self.stat_dct['framerate'], new_framerate, weight)
 
             # Adding time and framerate values to plot
@@ -143,8 +143,8 @@ class Tracker(object):
 
         # Updating average latency
         delta_t = time.time() - self.last_update_dct['latency']
-        weight = exp_weight(delta_t)
-        self.stat_dct['latency'] = exp_moving_avg(
+        weight = Tracker.exp_weight(delta_t)
+        self.stat_dct['latency'] = Tracker.exp_moving_avg(
             self.stat_dct['latency'], new_latency, weight)
 
         # Adding time and latency values to plot
@@ -203,8 +203,8 @@ class Tracker(object):
                 # Updating average framedrop
                 new_framedrop = self.lost_packets / \
                     float(self.lost_packets + self.recvd_packets_framedrop)
-                weight = exp_weight(delta_t)
-                self.stat_dct['framedrop'] = exp_moving_avg(
+                weight = Tracker.exp_weight(delta_t)
+                self.stat_dct['framedrop'] = Tracker.exp_moving_avg(
                     self.stat_dct['framedrop'], new_framedrop, weight)
 
                 # Adding time and framedrop values to plot
