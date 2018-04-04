@@ -681,11 +681,11 @@ class StatisticsLabel(Label):
 
     Attributes:
         FORMAT_DCT (dict): Dictionary mapping each data type to its format.
-        text (TYPE): Description
     """
 
     FORMAT_DCT = {
         'framerate': lambda val: '{} fps'.format(round(val, 2)),
+        'bitrate': lambda val: '{} Mbps'.format(round(val / 1000000, 2)),
         'latency': lambda val: '{} ms'.format(round(val * 1000, 2)),
         'framedrop': lambda val: '{}%'.format(round(val * 100, 2))
     }
