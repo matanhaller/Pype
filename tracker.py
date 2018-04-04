@@ -3,6 +3,7 @@
 
 # Imports
 import time
+import json
 
 import matplotlib.pyplot as plt
 from numpy import exp
@@ -18,6 +19,7 @@ class Tracker(object):
         first_packet_flag (bool): Flag indicating whether the arrived packet is the first one.
         last_update_dct (dict): Dictionary mapping statistics type to its last update.
         lost_packets (int): The number of lost packets.
+        recvd_bits (int): The number of received bits.
         recvd_packets_framedrop (int): The number of received packets
         recvd_packets_framerate (int): The number of received packets
         seq (int): Current packet sequence number.
@@ -45,14 +47,17 @@ class Tracker(object):
         self.seq = 0
         self.recvd_packets_framerate = 0
         self.recvd_packets_framedrop = 0
+        self.recvd_bits = 0
         self.lost_packets = 0
         self.stat_dct = {
             'framerate': 0,
+            'bitrate': 0,
             'latency': 0,
-            'framedrop': 0
+            'framedrop': 0,
         }
         self.unit_dct = {
             'framerate': 'fps',
+            'bitrate': 'Mbps',
             'latency': 'ms',
             'framedrop': '%'
         }
@@ -72,6 +77,9 @@ class Tracker(object):
 
         # Updating framerate
         self.update_framerate(**kwargs)
+
+        # Updating bitrate
+        self.update_bitrate(**kwargs)
 
         # Updating latency
         self.update_latency(**kwargs)
@@ -135,6 +143,32 @@ class Tracker(object):
             self.recvd_packets_framerate = 0
 
             self.last_update_dct['framerate'] = time.time()
+
+    def update_bitrate(self, **kwargs):
+        """Measures and updates average bitrate.
+
+        Args:
+            **kwargs: Keyword arguments supplied in dictionary form.
+        """
+
+        self.recvd_bits += len(json.dumps(kwargs)) * 8
+        delta_t = time.time() - self.last_update_dct['bitrate']
+
+        if delta_t > 0.5:
+            # Updating average bitrate
+            new_bitrate = self.recvd_bits / delta_t
+            weight = Tracker.exp_weight(delta_t)
+            self.stat_dct['bitrate'] = Tracker.exp_moving_avg(
+                self.stat_dct['bitrate'], new_bitrate, weight)
+
+            # Adding time and bitrate values to plot
+            self.x_val_dct['bitrate'].append(time.time() - self.call_start)
+            self.y_val_dct['bitrate'].append(
+                self.stat_dct['bitrate'] / 1000000)
+
+            self.recvd_bits = 0
+
+            self.last_update_dct['bitrate'] = time.time()
 
     def update_latency(self, **kwargs):
         """Measures and updates average latency.
