@@ -534,8 +534,8 @@ class Session(object):
         # User join
         if kwargs['subtype'] == 'user_join':
             self.user_lst.append(kwargs['name'])
-            self.audio_stat_dct[kwargs['name']] = Tracker()
-            self.video_stat_dct[kwargs['name']] = Tracker()
+            self.audio_stat_dct[kwargs['name']] = Tracker(kwargs['name'])
+            self.video_stat_dct[kwargs['name']] = Tracker(kwargs['name'])
 
         # User leave
         elif kwargs['subtype'] == 'user_leave':
