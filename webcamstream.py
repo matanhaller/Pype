@@ -18,8 +18,6 @@ class WebcamStream(object):
         updated_frame (bool): Whether a frame hasn't been read yet.
     """
 
-    COMPRESSION_QUALITY = 20
-
     def __init__(self):
         """Constructor method.
         """
