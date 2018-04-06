@@ -2,6 +2,7 @@
 """
 
 # Imports
+import ConfigParser
 import errno
 import socket
 import os
@@ -14,6 +15,7 @@ import cv2
 import base64
 
 import ntplib
+from Crypto.PublicKey import RSA
 
 from kivy.app import App
 from kivy.clock import Clock
@@ -21,6 +23,7 @@ from kivy.clock import mainthread
 from kivy.uix.label import Label
 from kivy.logger import Logger
 
+from configparser import get_option
 from task import Task
 from tracker import Tracker
 from decorators import *
@@ -47,7 +50,7 @@ class PypePeer(object):
         task_lst (list): List of all pending tasks.
     """
 
-    SERVER_ADDR = ('10.0.0.8', 5050)
+    SERVER_ADDR = (get_option('server_ip_addr'), 5050)
     MAX_RECV_SIZE = 65536
     NTP_SERVER_ADDR = 'pool.ntp.org'
 
@@ -327,9 +330,9 @@ class PypePeer(object):
                             elif data['mode'] == 'feedback':
                                 if data['src'] != root.username and data['rate']:
                                     self.session.set_optimal_rate(**data)
-                                        Logger.info(
-                                            'New sending rate: {} fps'.format(
-                                                self.session.send_video.rate))
+                                    Logger.info(
+                                        'New sending rate: {} fps'.format(
+                                            self.session.send_video.rate))
 
                 # Updating session layout with data from buffer
                 if hasattr(root, 'session_layout'):
@@ -372,10 +375,6 @@ class PypePeer(object):
         for conn in self.session.control_conn_dct.values():
             self.conn_lst.append(conn)
         self.conn_lst.append(self.session.unicast_control_conn)
-
-        # Waiting for session layout switch to be complete
-        while not hasattr(root, 'session_layout'):
-            pass
 
         # Starting audio and video packets receiving threads
         self.session.audio_recv_loop()
@@ -680,8 +679,9 @@ class Session(object):
             # Displaying new frames on screen
             for data in data_lst:
                 root = App.get_running_app().root_sm.current_screen
-                root.session_layout.video_layout.update_frame(
-                    **data)
+                if hasattr(root, 'session_layout'):
+                    root.session_layout.video_layout.update_frame(
+                        **data)
 
     @rate_limit(INITIAL_SENDING_RATE)
     def send_video(self):
@@ -755,16 +755,20 @@ class Session(object):
                         self.user_addr_dct[user], Session.MULTICAST_CONTROL_PORT)))
 
     def set_optimal_rate(self, **kwargs):
-        """Sets the new sending rate unsing the following logic:
-        1. If CLR hasn't been determined or a user offered a sending rate
-         lower and current CLR, make the user the new CLR.
-        2. IF the user is CLR, update the rate according to him.
-        3. Else, don't change a thing.
+        """
+        Sets the new sending rate unsing the following logic:
+            1. If CLR hasn't been determined or a user offered a sending rate
+             lower and current CLR, make the user the new CLR.
+            2. IF the user is CLR, update the rate according to him.
+            3. Else, don't change a thing.
 
-        The rate is updated with 40% weight to avoid abruptness in rate change.
+            The rate is updated with 40% weight to avoid abruptness in rate change.
 
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
+
+        Returns:
+            TYPE: Description
         """
 
         clr_user, clr_rate = self.clr

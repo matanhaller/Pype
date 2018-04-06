@@ -27,6 +27,7 @@ from kivy.uix.image import Image
 from kivy.graphics.texture import Texture
 
 from peer import PypePeer
+from configparser import get_option
 
 
 class EntryScreen(Screen):
@@ -149,8 +150,12 @@ class MainScreen(Screen):
             self.footer_widget = Label(
                 text='Call has been rejected by user')
 
+        # Invalid text
+        elif kwargs['mode'] == 'invalid_text':
+            self.footer_widget = Label(text='Invalid text')
+
         # Scheduling widget removal if necessary
-        if kwargs['mode'] in ['user_not_available', 'rejected_call']:
+        if kwargs['mode'] in ['user_not_available', 'rejected_call', 'invalid_text']:
             self.remove_widget_evt = Clock.schedule_once(
                 lambda dt: self.remove_footer_widget(), 3)
 
@@ -636,7 +641,14 @@ class SelfVideoDisplay(Camera):
     """Display of self video capture (see .kv file for structure).
     """
 
-    pass
+    def __init__(self, **kwargs):
+        """Constructor method.
+
+        Args:
+            **kwargs: Keyword arguments supplied in dictionary form.
+        """
+
+        Camera.__init__(self, index=get_option('cam_index'), **kwargs)
 
 
 class PeerVideoDisplay(FloatLayout):
@@ -681,6 +693,7 @@ class StatisticsLabel(Label):
 
     Attributes:
         FORMAT_DCT (dict): Dictionary mapping each data type to its format.
+        text (TYPE): Description
     """
 
     FORMAT_DCT = {
@@ -750,15 +763,20 @@ class ChatLayout(BoxLayout):
         """
 
         # Sending chat GUI event
-        msg = self.ids.chat_input.text
-        self.ids.chat_input.text = ''
-        app = App.get_running_app()
-        app.send_gui_evt({
-            'type': 'session',
-            'subtype': 'self_chat',
-            'src': app.root_sm.current_screen.username,
-            'msg': msg
-        })
+        try:
+            msg = self.ids.chat_input.text
+            msg.decode('ascii')
+            self.ids.chat_input.text = ''
+            app = App.get_running_app()
+            app.send_gui_evt({
+                'type': 'session',
+                'subtype': 'self_chat',
+                'src': app.root_sm.current_screen.username,
+                'msg': msg
+            })
+        except UnicodeEncodeError:
+            main_screen = App.get_running_app().root_sm.current_screen
+            main_screen.add_footer_widget(mode='invalid_text')
 
 
 class MessageLabel(Label):

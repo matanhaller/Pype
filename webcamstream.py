@@ -2,8 +2,11 @@
 """
 
 # Imports
+import ConfigParser
 import cv2
 from decorators import new_thread
+
+from configparser import get_option
 
 
 class WebcamStream(object):
@@ -21,7 +24,7 @@ class WebcamStream(object):
         """Constructor method.
         """
 
-        self.cap = cv2.VideoCapture(1)
+        self.cap = cv2.VideoCapture(get_option('cam_index'))
         self.frame = self.cap.read()[1]
         self.updated_frame = True
         self.keep_streaming = True
