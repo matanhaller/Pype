@@ -3,7 +3,6 @@
 
 # Imports
 import cv2
-
 from decorators import new_thread
 
 
