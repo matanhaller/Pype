@@ -45,7 +45,6 @@ class PypePeer(object):
         session (Session): Session object of current call (defauls to None).
         session_buffer (list): Buffer of data yet to be updated in session.
         task_lst (list): List of all pending tasks.
-        temp_audio_lst (list): Description
     """
 
     SERVER_ADDR = ('10.0.0.8', 5050)
@@ -105,6 +104,8 @@ class PypePeer(object):
 
             # Handling call procedures
             if self.session and hasattr(root, 'session_layout'):
+                # Sending rate feedback to all active peers in call
+                self.session.send_optimal_rates()
 
                 # Updating statistics on screen
                 self.session.update_stats()
@@ -309,17 +310,26 @@ class PypePeer(object):
                                         data['medium']]
                                 if data['medium'] == 'video':
                                     data['mode'] = 'state'
-                                    self.task_lst.append(Task(self.session.control_conn_dct['video'], data, (
+                                    self.task_lst.append(Task(self.session.control_conn_dct['video'], data, dst=(
                                         self.session.multicast_addr_dct['video'], Session.MULTICAST_CONTROL_PORT)))
 
                             # Other peer video transmission stop
                             elif data['mode'] == 'state':
                                 if data['src'] != root.username:
                                     if data['state'] == 'down':
-                                        self.reset_frame_evt = Clock.schedule_interval(lambda dt: root.session_layout.video_layout.reset_frame(data[
-                                            'src']), 0.1)
+                                        self.reset_frame_evt = Clock.schedule_interval(
+                                            lambda dt: root.session_layout.video_layout.reset_frame(
+                                                data['src']), 0.1)
                                     else:
                                         self.reset_frame_evt.cancel()
+
+                            # Sending rate feedback
+                            elif data['mode'] == 'feedback':
+                                if data['src'] != root.username and data['rate']:
+                                    self.session.set_optimal_rate(**data)
+                                        Logger.info(
+                                            'New sending rate: {} fps'.format(
+                                                self.session.send_video.rate))
 
                 # Updating session layout with data from buffer
                 if hasattr(root, 'session_layout'):
@@ -361,13 +371,11 @@ class PypePeer(object):
         # Adding control conns to connection list
         for conn in self.session.control_conn_dct.values():
             self.conn_lst.append(conn)
+        self.conn_lst.append(self.session.unicast_control_conn)
 
         # Waiting for session layout switch to be complete
         while not hasattr(root, 'session_layout'):
             pass
-
-        # Creating list for temporary storing of received audio packets.
-        self.temp_audio_lst = []
 
         # Starting audio and video packets receiving threads
         self.session.audio_recv_loop()
@@ -397,6 +405,7 @@ class PypePeer(object):
         # Removing control conns from connection list
         for conn in self.session.control_conn_dct.values():
             self.conn_lst.remove(conn)
+        self.conn_lst.remove(self.session.unicast_control_conn)
 
         # Closing session
         self.session.terminate()
@@ -415,7 +424,7 @@ class PypePeer(object):
         self.app_thread_running_flag = False
 
         # Leaving active call (if there is)
-        if self.session and hasattr(self.session, 'video_capture'):
+        if self.session:
             self.leave_call()
 
         # Closing active connections
@@ -437,6 +446,7 @@ class Session(object):
         audio_output_stream (pyaudio.Stream): Audio output stream object.
         AUDIO_SAMPLING_RATE (int): Audio sampling rate.
         audio_stat_dct (dict): Audio statistics dictionary.
+        clr (list): Username + optimal sending rate of CLR (current limiting receiver).
         content_conn_dct (dict): Dictionary of connections used for content transmission.
         control_conn_dct (dict): Dictionary of connections used for control transmission.
         INITIAL_SENDING_RATE (int): Initial sending rate.
@@ -449,6 +459,8 @@ class Session(object):
         send_flag_dct (dict): Dictioanry with boolean values indicating whether to transmit audio and video packets.
         seq_dct (dict): Dictionary of audio and video sequence numbers.
         task_lst (list): List of tasks to send (the same one that PypePeer has).
+        unicast_control_conn (socket.socket): Unicast connection used for control transmission.
+        user_addr_dct (dict): Dictioanry mapping each user to its IP address.
         user_lst (list): List of users in call.
         VIDEO_COMPRESSION_QUALITY (int): Value indicating the quality of the resultant frame
          after JPEG compression.
@@ -473,6 +485,7 @@ class Session(object):
 
         self.master = kwargs['master']
         self.user_lst = kwargs['user_lst']
+        self.user_addr_dct = kwargs['peer_addrs']
 
         # Storing multicast addresses allocated by server
         self.multicast_addr_dct = kwargs['addrs']
@@ -489,6 +502,13 @@ class Session(object):
         self.control_conn_dct = {medium: self.create_multicast_conn(self.multicast_addr_dct[medium],
                                                                     Session.MULTICAST_CONTROL_PORT)
                                  for medium in self.multicast_addr_dct}
+
+        # Creating unicast control conn for sending and receiving feedback
+        self.unicast_control_conn = socket.socket(
+            socket.AF_INET, socket.SOCK_DGRAM)
+        self.unicast_control_conn.setsockopt(
+            socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.unicast_control_conn.bind(('', Session.MULTICAST_CONTROL_PORT))
 
         # Initializing audio and video sequence numbers
         self.seq_dct = {
@@ -522,6 +542,9 @@ class Session(object):
             'video': True
         }
 
+        # Initializing CLR (current limit receiver) value
+        self.clr = [None, None]
+
         self.task_lst = kwargs['task_lst']
 
     def update(self, **kwargs):
@@ -534,12 +557,14 @@ class Session(object):
         # User join
         if kwargs['subtype'] == 'user_join':
             self.user_lst.append(kwargs['name'])
+            self.user_addr_dct[kwargs['name']] = kwargs['addr']
             self.audio_stat_dct[kwargs['name']] = Tracker(kwargs['name'])
             self.video_stat_dct[kwargs['name']] = Tracker(kwargs['name'])
 
         # User leave
         elif kwargs['subtype'] == 'user_leave':
             self.user_lst.remove(kwargs['name'])
+            del self.user_addr_dct[kwargs['name']]
             if 'new_master' in kwargs:
                 self.master = kwargs['new_master']
             del self.audio_stat_dct[kwargs['name']]
@@ -627,7 +652,7 @@ class Session(object):
 
         # Sending audio packet
         Task(self.content_conn_dct['audio'], audio_msg,
-             (self.multicast_addr_dct['audio'], Session.MULTICAST_CONTENT_PORT)).send_msg()
+             dst=(self.multicast_addr_dct['audio'], Session.MULTICAST_CONTENT_PORT)).send_msg()
 
     @new_thread('video_send_thread')
     def video_send_loop(self):
@@ -691,7 +716,7 @@ class Session(object):
 
             # Sending video packet
             Task(self.content_conn_dct['video'], video_msg,
-                 (self.multicast_addr_dct['video'], Session.MULTICAST_CONTENT_PORT)).send_msg()
+                 dst=(self.multicast_addr_dct['video'], Session.MULTICAST_CONTENT_PORT)).send_msg()
 
     def send_chat(self, **kwargs):
         """Sends chat message to call multicast chat group.
@@ -705,7 +730,59 @@ class Session(object):
         kwargs['timestamp'] = None
         self.task_lst.append(
             Task(self.content_conn_dct['chat'], kwargs,
-                 (self.multicast_addr_dct['chat'], Session.MULTICAST_CONTENT_PORT)))
+                 dst=(self.multicast_addr_dct['chat'], Session.MULTICAST_CONTENT_PORT)))
+
+    @rate_limit(1)
+    def send_optimal_rates(self):
+        """Sends the calculated optimal sending rate to all users in call
+        """
+
+        root = App.get_running_app().root_sm.current_screen
+        username = root.username
+
+        for user in self.user_lst:
+            if user != username:
+                optimal_rate = self.video_stat_dct[user].optimal_sending_rate()
+                if optimal_rate:
+                    feedback_msg = {
+                        'type': 'session',
+                        'subtype': 'control',
+                        'mode': 'feedback',
+                        'src': username,
+                        'rate': optimal_rate
+                    }
+                    self.task_lst.append(Task(self.unicast_control_conn, feedback_msg, dst=(
+                        self.user_addr_dct[user], Session.MULTICAST_CONTROL_PORT)))
+
+    def set_optimal_rate(self, **kwargs):
+        """Sets the new sending rate unsing the following logic:
+        1. If CLR hasn't been determined or a user offered a sending rate
+         lower and current CLR, make the user the new CLR.
+        2. IF the user is CLR, update the rate according to him.
+        3. Else, don't change a thing.
+
+        The rate is updated with 40% weight to avoid abruptness in rate change.
+
+        Args:
+            **kwargs: Keyword arguments supplied in dictionary form.
+        """
+
+        clr_user, clr_rate = self.clr
+
+        # Determining new rate
+        if not clr_user or clr_user != kwargs['src'] \
+                and kwargs['rate'] < clr_rate:
+            self.clr = [kwargs['src'], kwargs['rate']]
+            new_rate = kwargs['rate']
+        elif clr_user == kwargs['src']:
+            new_rate = kwargs['rate']
+        else:
+            return
+
+        # Setting new rate
+        current_rate = self.send_video.rate
+        self.send_video.__func__.rate = int(
+            0.6 * current_rate + 0.4 * new_rate)
 
     @rate_limit(1)
     def update_stats(self):
@@ -715,6 +792,7 @@ class Session(object):
         root = App.get_running_app().root_sm.current_screen
         username = root.username
         video_display_dct = root.session_layout.video_layout.video_display_dct
+
         for user in self.user_lst:
             if user != username:
                 stats = self.video_stat_dct[user].stat_dct
@@ -741,6 +819,7 @@ class Session(object):
         # Closing active connections
         for conn in self.content_conn_dct.values() + self.control_conn_dct.values():
             conn.close()
+        self.unicast_control_conn.close()
 
         # Closing audio streams
         self.audio_input_stream.stop_stream()

@@ -257,6 +257,18 @@ class Tracker(object):
 
                 self.last_update_dct['framedrop'] = time.time()
 
+    def optimal_sending_rate(self):
+        """Calculates the optimal sending rate as a function of latency.
+
+        Returns:
+            int: The optimal sending rate (in fps). (None if undefined)
+        """
+
+        try:
+            return int(1.75 / self.stat_dct['latency'])
+        except ZeroDivisionError:
+            return None
+
     def plot_stats(self, stats=None):
         """Plots statistics as a 2D scatterplot with a connecting line.
 
