@@ -21,11 +21,14 @@ def get_option(option):
         option (str): Name of option to retreive from configuration file.
 
     Returns:
-        str/int/list: The value of the requested option.
+        str/int/bool/list: The value of the requested option.
     """
 
     global config
     try:
         return config.getint('Header', option)
     except ValueError:
-        return config.get('Header', option)
+        try:
+            return config.getboolean('Header', option)
+        except ValueError:
+            return config.get('Header', option)
