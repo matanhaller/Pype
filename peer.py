@@ -15,6 +15,7 @@ import cv2
 import base64
 
 import ntplib
+from Crypto.Cipher import AES
 from Crypto.PublicKey import RSA
 
 from kivy.app import App
@@ -51,7 +52,7 @@ class PypePeer(object):
     """
 
     SERVER_ADDR = (get_option('server_ip_addr'), 5050)
-    MAX_RECV_SIZE = 65536
+    MAX_RECV_SIZE = 65536  # Bytes
     NTP_SERVER_ADDR = 'pool.ntp.org'
 
     def __init__(self):
@@ -152,8 +153,7 @@ class PypePeer(object):
 
         Logger.info('Connected to server.')
 
-    @staticmethod
-    def get_jsons(raw_data):
+    def get_jsons(self, raw_data):
         """Retreives JSON objects string and parses it.
 
         Args:
@@ -168,7 +168,18 @@ class PypePeer(object):
 
         while True:
             try:
+                # Decoding first JSON object from raw data
                 json_obj, end_index = decoder.raw_decode(raw_data)
+
+                # Decrypting JSON if necessary
+                if 'payload' in json_obj:
+                    if self.session and hasattr(self.session, 'aes_key'):
+                        json_obj = self.session.decrypt_msg(json_obj)
+                    else:
+                        raw_data = raw_data[end_index:]
+                        continue
+
+                # Appending JSON to list
                 json_lst.append(json_obj)
                 raw_data = raw_data[end_index:]
             except ValueError:
@@ -184,22 +195,34 @@ class PypePeer(object):
         """
 
         for conn in read_lst:
-            try:
-                if conn:
-                    if conn.type == socket.SOCK_STREAM:
-                        raw_data = conn.recv(PypePeer.MAX_RECV_SIZE)
-                    else:
-                        raw_data, addr = conn.recvfrom(PypePeer.MAX_RECV_SIZE)
-            except socket.error as e:
-                Logger.info('Unexpected error: ' + str(e))
-                continue
-
             # Getting current app references
             app = App.get_running_app()
             root = app.root_sm.current_screen
 
+            try:
+                # Accepting connection for AES symmetric key exchange
+                if self.session and hasattr(self.session, 'crypto_conn') \
+                        and conn is self.session.crypto_conn and  hasattr(root, 'username') \
+                        and self.session.master == root.username:
+                    new_crypto_conn, addr = conn.accept()
+                    self.conn_lst.append(new_crypto_conn)
+                    continue
+                elif conn:
+                    if conn.type == socket.SOCK_STREAM:
+                        raw_data = conn.recv(PypePeer.MAX_RECV_SIZE)
+                    else:
+                        raw_data, addr = conn.recvfrom(PypePeer.MAX_RECV_SIZE)
+
+                    # Closing connection if necessary
+                    if not raw_data:
+                        self.conn_lst.remove(conn)
+                        conn.close()
+            except socket.error as e:
+                Logger.info('Unexpected error: ' + str(e))
+                continue
+
             # Parsing JSON data
-            data_lst = PypePeer.get_jsons(raw_data)
+            data_lst = self.get_jsons(raw_data)
 
             # Handling messages
             for data in data_lst:
@@ -233,6 +256,7 @@ class PypePeer(object):
                         if data['subtype'] == 'call_remove':
                             # Leaving call if necessary
                             self.leave_call()
+                            Logger.info('Call ended.')
                         elif data['subtype'] in ['user_join', 'user_leave'] and data['name'] != root.username:
                             # Updating session display
                             self.session.update(**data)
@@ -280,6 +304,7 @@ class PypePeer(object):
                                     root.remove_footer_widget()
                             else:
                                 self.start_call(**data)
+                                Logger.info('Call started.')
                         else:
                             root.add_footer_widget(mode='rejected_call')
                         self.call_block = False
@@ -290,13 +315,14 @@ class PypePeer(object):
                     if data['subtype'] == 'leave':
                         self.task_lst.append(Task(self.server_conn, data))
                         self.leave_call()
+                        Logger.info('Call ended.')
 
                     elif self.session:
                         # Sending chat message
                         if data['subtype'] == 'self_chat':
                             self.session.send_chat(**data)
 
-                        # Receiving content
+                        # Content packets
                         elif data['subtype'] == 'content':
                             # Receiving chat message
                             if data['medium'] == 'chat':
@@ -304,10 +330,20 @@ class PypePeer(object):
                                     data['src'] = 'You'
                                 root.session_layout.chat_layout.add_msg(**data)
 
-                        # Receiving control messages
+                        # Control packets
                         elif data['subtype'] == 'control':
+                            # Receiving RSA public key
+                            if data['mode'] == 'rsa_public_key':
+                                self.session.send_crypto_info(
+                                    data['key'], conn)
+
+                            # Receiving cryptographic info from call master
+                            elif data['mode'] == 'crypto_info':
+                                self.session.set_crypto_info(**data)
+                                Logger.info('Cryptographic info set.')
+
                             # Starting/stopping transmission
-                            if data['mode'] == 'self_state':
+                            elif data['mode'] == 'self_state':
                                 self.session.send_flag_dct[data['medium']] = \
                                     not self.session.send_flag_dct[
                                         data['medium']]
@@ -368,13 +404,17 @@ class PypePeer(object):
         # Switching app interface to session layout
         root.switch_to_session_layout(**kwargs)
 
-        # Adding chat multicast conn to connection list
+        # Adding session connections to connection list
         self.conn_lst.append(self.session.content_conn_dct['chat'])
-
-        # Adding control conns to connection list
         for conn in self.session.control_conn_dct.values():
             self.conn_lst.append(conn)
         self.conn_lst.append(self.session.unicast_control_conn)
+        self.conn_lst.append(self.session.crypto_conn)
+
+        # Sending RSA public key if user isn't call master
+        if root.username != kwargs['master']:
+            self.session.send_rsa_public_key()
+            Logger.info('Sending RSA public key.')
 
         # Starting audio and video packets receiving threads
         self.session.audio_recv_loop()
@@ -383,8 +423,6 @@ class PypePeer(object):
         # Starting audio and video packet sending threads
         self.session.audio_send_loop()
         self.session.video_send_loop()
-
-        Logger.info('Call started.')
 
     def leave_call(self):
         """Procedures to be done when leaving call.
@@ -398,13 +436,12 @@ class PypePeer(object):
             if user != username:
                 self.session.video_stat_dct[user].plot_stats()
 
-        # Removing chat conn from connection list
+        # Removing active conns from connection list
         self.conn_lst.remove(self.session.content_conn_dct['chat'])
-
-        # Removing control conns from connection list
         for conn in self.session.control_conn_dct.values():
             self.conn_lst.remove(conn)
         self.conn_lst.remove(self.session.unicast_control_conn)
+        self.conn_lst.remove(self.session.crypto_conn)
 
         # Closing session
         self.session.terminate()
@@ -412,8 +449,6 @@ class PypePeer(object):
 
         # Switching to call layout
         root.switch_to_call_layout()
-
-        Logger.info('Call ended.')
 
     def terminate(self):
         """A series of procedures to be done on GUI terminate.
@@ -425,6 +460,7 @@ class PypePeer(object):
         # Leaving active call (if there is)
         if self.session:
             self.leave_call()
+            Logger.info('Call ended.')
 
         # Closing active connections
         self.server_conn.close()
@@ -439,15 +475,19 @@ class Session(object):
     """Class used for management of current call.
 
     Attributes:
+        aes_iv (str): Initialization vector for AES encryption and decryption.
+        AES_IV_SIZE (int): Size of AES initialization vector.
+        aes_key (str): Symmetric key for AES encryption and decryption.
+        AES_KEY_SIZE (int): Size of AES symmetric key.
         AUDIO_CHUNK_SIZE (int): The number of audio samples in a single read.
         audio_input_stream (pyaudio.Stream): Audio input stream object.
         audio_interface (pyaudio.PyAudio): Interface for accessing audio methods.
         audio_output_stream (pyaudio.Stream): Audio output stream object.
         AUDIO_SAMPLING_RATE (int): Audio sampling rate.
-        audio_stat_dct (dict): Audio statistics dictionary.
         clr (list): Username + optimal sending rate of CLR (current limiting receiver).
         content_conn_dct (dict): Dictionary of connections used for content transmission.
         control_conn_dct (dict): Dictionary of connections used for control transmission.
+        crypto_conn (socket.socket): TCP connection used for exchanging cyptographic info.
         INITIAL_SENDING_RATE (int): Initial sending rate.
         keep_sending_flag (bool): Flag indicating whether to keep sending audio and video packets.
         master (str): Currrent call master.
@@ -455,8 +495,13 @@ class Session(object):
         MULTICAST_CONN_TIMEOUT (int): Timeout of audio and video multicast connections.
         MULTICAST_CONTENT_PORT (int): Port allocated for content transmission (audio, video and chat).
         MULTICAST_CONTROL_PORT (int): Port allocated for control transmission (feedback, cryptographic info etc.).
+        packet_nonce_dct (dict): Dictionary for storing already used nonce (used for data integrity).
+        rsa_keypair (RSAobj): RSA keypair object used for assymetric encryption and decryption.
+        RSA_KEYS_SIZE (int): Size of RSA public and private keys.
         send_flag_dct (dict): Dictioanry with boolean values indicating whether to transmit audio and video packets.
         seq_dct (dict): Dictionary of audio and video sequence numbers.
+        session_nonce (str): Nonce generated at the beginning of call and keeps data integrity.
+        SESSION_NONCE_SIZE (int): Size of session nonce.
         task_lst (list): List of tasks to send (the same one that PypePeer has).
         unicast_control_conn (socket.socket): Unicast connection used for control transmission.
         user_addr_dct (dict): Dictioanry mapping each user to its IP address.
@@ -471,9 +516,13 @@ class Session(object):
     MULTICAST_CONTENT_PORT = 8193
     MULTICAST_CONN_TIMEOUT = 1
     VIDEO_COMPRESSION_QUALITY = 50
-    AUDIO_SAMPLING_RATE = 16000  # 16 KHz
-    AUDIO_CHUNK_SIZE = 1024
-    INITIAL_SENDING_RATE = 30  # 30 fps
+    AUDIO_SAMPLING_RATE = 16000  # Hz
+    AUDIO_CHUNK_SIZE = 1024  # Samples
+    INITIAL_SENDING_RATE = 30  # Fps
+    AES_KEY_SIZE = 32  # Bytes
+    AES_IV_SIZE = 16  # Bytes
+    RSA_KEYS_SIZE = 1024  # Bits
+    SESSION_NONCE_SIZE = 8  # Bytes
 
     def __init__(self, **kwargs):
         """Constructor method.
@@ -482,9 +531,42 @@ class Session(object):
             **kwargs: Keyword arguments supplied in dictionary form.
         """
 
+        self.task_lst = kwargs['task_lst']
+
         self.master = kwargs['master']
         self.user_lst = kwargs['user_lst']
         self.user_addr_dct = kwargs['peer_addrs']
+
+        # Creating connection for cryptographic info sharing
+        self.crypto_conn = socket.socket(
+            socket.AF_INET, socket.SOCK_STREAM)
+        self.crypto_conn.setsockopt(
+            socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        username = App.get_running_app().root_sm.current_screen.username
+        if username == kwargs['master']:
+            # Initializing AES symmetric key and initialization vector
+            self.aes_key = os.urandom(Session.AES_KEY_SIZE)
+            self.aes_iv = os.urandom(Session.AES_IV_SIZE)
+            Logger.info('Cryptographic info set.')
+
+            # Creating session nonce
+            self.session_nonce = os.urandom(Session.SESSION_NONCE_SIZE)
+
+            # Initializing packet nonce lists
+            self.packet_nonce_dct = {mode: []
+                                     for mode in ['audio', 'video', 'feedback']}
+
+            self.crypto_conn.bind(('', Session.MULTICAST_CONTROL_PORT))
+            self.crypto_conn.listen(1)
+        else:
+            # If user isn't the call master, create RSA keypair for receiving
+            # cryptographic info
+            Logger.info('Creating RSA keypair.')
+            self.rsa_keypair = RSA.generate(Session.RSA_KEYS_SIZE)
+
+            self.crypto_conn.connect(
+                (self.user_addr_dct[self.master], Session.MULTICAST_CONTROL_PORT))
 
         # Storing multicast addresses allocated by server
         self.multicast_addr_dct = kwargs['addrs']
@@ -515,8 +597,7 @@ class Session(object):
             'video': 0
         }
 
-        # Initializing audio and video statistics dictionaries
-        self.audio_stat_dct = {user: Tracker(user) for user in self.user_lst}
+        # Initializing video statistics dictionary
         self.video_stat_dct = {user: Tracker(user) for user in self.user_lst}
 
         # Initializing audio stream
@@ -544,8 +625,6 @@ class Session(object):
         # Initializing CLR (current limit receiver) value
         self.clr = [None, None]
 
-        self.task_lst = kwargs['task_lst']
-
     def update(self, **kwargs):
         """Updates session when changes in call occur.
 
@@ -557,7 +636,6 @@ class Session(object):
         if kwargs['subtype'] == 'user_join':
             self.user_lst.append(kwargs['name'])
             self.user_addr_dct[kwargs['name']] = kwargs['addr']
-            self.audio_stat_dct[kwargs['name']] = Tracker(kwargs['name'])
             self.video_stat_dct[kwargs['name']] = Tracker(kwargs['name'])
 
         # User leave
@@ -566,8 +644,132 @@ class Session(object):
             del self.user_addr_dct[kwargs['name']]
             if 'new_master' in kwargs:
                 self.master = kwargs['new_master']
-            del self.audio_stat_dct[kwargs['name']]
+
+                # Creating TCP connection for cryptographic info exchange is
+                # user is the new call master
+                username = App.get_running_aPpp().root_sm.current_screen.username
+                if kwargs['new_master'] == username:
+                    self.crypto_conn = socket.socket(
+                        socket.AF_INET, socket.SOCK_STREAM)
+                    self.crypto_conn.bind(('', Session.MULTICAST_CONTROL_PORT))
+                    self.crypto_conn.listen(1)
+                    peer = App.get_running_app().peer
+                    peer.conn_lst.append(self.crypto_conn)
+
             del self.video_stat_dct[kwargs['name']]
+
+    def send_rsa_public_key(self):
+        """Sends RSA public key to call master for receiving
+        cryptographic info.
+        """
+
+        # Retreiving PEM-encoded RSA public key
+        rsa_public_key = self.rsa_keypair.publickey().exportKey()
+
+        # Sending public key to call master
+        crypto_msg = {
+            'type': 'session',
+            'subtype': 'control',
+            'mode': 'rsa_public_key',
+            'key': rsa_public_key
+        }
+        self.task_lst.append(Task(self.crypto_conn, crypto_msg))
+
+    def send_crypto_info(self, public_key, conn):
+        """Sends cryptographic info (AES symmetric key and initialization vector
+            and session nonce) to a new user in call who isn't the call master.
+
+        Args:
+            public_key (str): RSA public key received from user.
+            conn (socket.socket): TCP connection for sending the info.
+        """
+
+        # Encrypting AES key and session nonce with RSA public key
+        rsa_cipher = RSA.importKey(public_key)
+        encrypted_key, encrypted_nonce = rsa_cipher.encrypt(
+            self.aes_key, 0)[0], rsa_cipher.encrypt(self.session_nonce, 0)[0]
+
+        # Sending cryptographic info to user
+        crypto_msg = {
+            'type': 'session',
+            'subtype': 'control',
+            'mode': 'crypto_info',
+            'key': base64.b64encode(encrypted_key),
+            'iv': base64.b64encode(self.aes_iv),
+            'nonce': base64.b64encode(encrypted_nonce)
+        }
+        self.task_lst.append(Task(conn, crypto_msg))
+
+    def set_crypto_info(self, **kwargs):
+        """Decrypts and sets cryptographic info received from call master.
+
+        Args:
+            **kwargs: Keyword arguments supplied in dictioanry form.
+        """
+
+        # Decrypting AES key and session nonce with RSA private key
+        encrypted_key, encrypted_nonce = base64.b64decode(
+            kwargs['key']), base64.b64decode(kwargs['nonce'])
+        decrypted_key, decrypted_nonce = self.rsa_keypair.decrypt(
+            encrypted_key), self.rsa_keypair.decrypt(encrypted_nonce)
+
+        # Storing decrypted cryptographic info
+        self.aes_key = decrypted_key
+        self.aes_iv = base64.b64decode(kwargs['iv'])
+        self.session_nonce = decrypted_nonce
+
+    def encrypt_msg(self, msg):
+        """Encrypts message with AES symmetric encryption.
+
+        Args:
+            msg (dict): JSON-formatted message.
+
+        Returns:
+            dict: The encrypted message wrapped in another JSON.
+        """
+
+        # Creating AES cipher object
+        aes_cipher = AES.new(self.aes_key, AES.MODE_CBC, self.aes_iv)
+
+        # Preparing message for encryption
+        msg = json.dumps(msg)
+        if len(msg) % 16 != 0:
+            msg += (16 - len(msg) % 16) * '\x00'
+
+        encrypted_msg = aes_cipher.encrypt(msg)
+        return {
+            'timestamp': None,
+            'payload': base64.b64encode(encrypted_msg)
+        }
+
+    def decrypt_msg(self, msg):
+        """Decrypts message with AES symmetric encryption.
+
+        Args:
+            msg (dict): Encrypted data wrapped in JSON.
+
+        Returns:
+            dict: Decrypted JSON-formatted message.
+        """
+
+        # Creating AES cipher object
+        aes_cipher = AES.new(self.aes_key, AES.MODE_CBC, self.aes_iv)
+
+        # Decrypting data
+        encrypted_data = base64.b64decode(msg['payload'])
+        decrypted_data = aes_cipher.decrypt(encrypted_data)
+
+        # Unpadding decrypted data
+        decrypted_data = decrypted_data.rstrip('\x00')
+
+        # Converting encrypted data to JSON format
+        decrypted_msg = json.loads(decrypted_data)
+
+        # Moving timestamp to original message if necessary:
+        if 'timestamp' in msg:
+            decrypted_msg['timestamp'] = msg['timestamp']
+
+        return decrypted_msg
 
     def create_multicast_conn(self, addr, port):
         """Creates UDP socket and adds it to multicast group.
@@ -602,6 +804,11 @@ class Session(object):
         """Loop for sending audio packets in parallel.
         """
 
+        # Waiting for cryptographic info exchange to complete
+        while not hasattr(self, 'aes_key'):
+            pass
+
+        # Sending audio in a loop
         while self.keep_sending_flag:
             if self.send_flag_dct['audio']:
                 self.send_audio()
@@ -618,17 +825,18 @@ class Session(object):
                     PypePeer.MAX_RECV_SIZE)
             except socket.timeout:
                 continue
-            data_lst = PypePeer.get_jsons(raw_data)
+            peer = App.get_running_app().peer
+            data_lst = peer.get_jsons(raw_data)
 
             # Decoding and playing audio packets
             username = App.get_running_app().root_sm.current_screen.username
             for data in data_lst:
-                if data['src'] != username and data['src'] != self.master:
+                if data['src'] != username:
                     audio_chunk = base64.b64decode(data['chunk'])
                     self.audio_output_stream.write(audio_chunk)
 
     def send_audio(self):
-        """Sends audio packet to multicast group.
+        """Sends encrypted audio packet to multicast group.
         """
 
         # Reading a chunk of audio samples from stream
@@ -643,14 +851,19 @@ class Session(object):
             'timestamp': None,
             'src': username,
             'seq': self.seq_dct['audio'],
+            'session_nonce': base64.b64encode(self.session_nonce),
+            'packet_nonce': base64.b64encode(os.urandom(Session.SESSION_NONCE_SIZE)),
             'chunk': base64.b64encode(audio_chunk)
         }
+
+        # Encrypting audio packet
+        encrypted_audio_msg = self.encrypt_msg(audio_msg)
 
         # Incrementing audio packet sequence number
         self.seq_dct['audio'] += 1
 
         # Sending audio packet
-        Task(self.content_conn_dct['audio'], audio_msg,
+        Task(self.content_conn_dct['audio'], encrypted_audio_msg,
              dst=(self.multicast_addr_dct['audio'], Session.MULTICAST_CONTENT_PORT)).send_msg()
 
     @new_thread('video_send_thread')
@@ -658,6 +871,11 @@ class Session(object):
         """Loop for sending video packets in parallel.
         """
 
+        # Waiting for cryptographic info exchange to complete
+        while not hasattr(self, 'aes_key'):
+            pass
+
+        # Sending video in a loop
         while self.keep_sending_flag:
             if self.send_flag_dct['video']:
                 self.send_video()
@@ -674,18 +892,19 @@ class Session(object):
                     PypePeer.MAX_RECV_SIZE)
             except socket.timeout:
                 continue
-            data_lst = PypePeer.get_jsons(raw_data)
+            peer = App.get_running_app().peer
+            data_lst = peer.get_jsons(raw_data)
 
             # Displaying new frames on screen
             for data in data_lst:
                 root = App.get_running_app().root_sm.current_screen
-                if hasattr(root, 'session_layout'):
+                if hasattr(root, 'session_layout') and data['src'] != root.username:
                     root.session_layout.video_layout.update_frame(
                         **data)
 
     @rate_limit(INITIAL_SENDING_RATE)
     def send_video(self):
-        """Sends video packet to multicast group.
+        """Sends encrypted video packet to multicast group.
         """
 
         # Reading a new video frame from webcam
@@ -708,14 +927,19 @@ class Session(object):
                 'timestamp': None,
                 'src': username,
                 'seq': self.seq_dct['video'],
+                'session_nonce': base64.b64encode(self.session_nonce),
+                'packet_nonce': base64.b64encode(os.urandom(Session.SESSION_NONCE_SIZE)),
                 'frame': base64.b64encode(encoded_frame)
             }
+
+            # Encrypting audio packet
+            encrypted_video_msg = self.encrypt_msg(video_msg)
 
             # Incrementing video packet sequence number
             self.seq_dct['video'] += 1
 
             # Sending video packet
-            Task(self.content_conn_dct['video'], video_msg,
+            Task(self.content_conn_dct['video'], encrypted_video_msg,
                  dst=(self.multicast_addr_dct['video'], Session.MULTICAST_CONTENT_PORT)).send_msg()
 
     def send_chat(self, **kwargs):
@@ -752,7 +976,7 @@ class Session(object):
                         'rate': optimal_rate
                     }
                     self.task_lst.append(Task(self.unicast_control_conn, feedback_msg, dst=(
-                        self.user_addr_dct[user], Session.MULTICAST_CONTROL_PORT)))
+                        self.user_addr_dct[self.master], Session.MULTICAST_CONTROL_PORT)))
 
     def set_optimal_rate(self, **kwargs):
         """
@@ -766,9 +990,6 @@ class Session(object):
 
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
-
-        Returns:
-            TYPE: Description
         """
 
         clr_user, clr_rate = self.clr
@@ -824,6 +1045,8 @@ class Session(object):
         for conn in self.content_conn_dct.values() + self.control_conn_dct.values():
             conn.close()
         self.unicast_control_conn.close()
+        if self.crypto_conn:
+            self.crypto_conn.close()
 
         # Closing audio streams
         self.audio_input_stream.stop_stream()
