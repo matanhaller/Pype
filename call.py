@@ -7,24 +7,21 @@ class Call(object):
     """App call class.
 
     Attributes:
-        audio_addr (str): Multicast IP address of audio transmission.
-        chat_addr (str): Multicast IP address of chat.
+        addr_dct (dict): Dictionary of audio, video and chat multicast
+         addresses allocated for call.
         master (str): Call master.
         user_lst (lst): List of all users in call.
-        video_addr (str): Multicast IP address of video transmission.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, addr_dct):
         """Constructor method.
 
         Args:
-            **kwargs: Keyword arguments supplied in dictionary form.
+            addr_dct (dct): Dictionary of audio, video and chat multicast addresses.
         """
 
         self.master = None
-        self.audio_addr = kwargs['audio_addr']
-        self.video_addr = kwargs['video_addr']
-        self.chat_addr = kwargs['chat_addr']
+        self.addr_dct = addr_dct
         self.user_lst = []
 
     def user_join(self, username):
