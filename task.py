@@ -40,6 +40,7 @@ class Task(object):
         if 'timestamp' in self.msg:
             self.msg['timestamp'] = time.time()
 
+        # Stringifying JSON message
         str_msg = json.dumps(self.msg)
 
         # For TCP sockets
