@@ -602,8 +602,7 @@ class VideoLayout(FloatLayout):
             **kwargs: Keyword arguments supplied in dictionary form.
         """
 
-        username = App.get_running_app().root_sm.current_screen.username
-        if kwargs['src'] != username and kwargs['src'] in self.video_display_dct:
+        if kwargs['src'] in self.video_display_dct:
             # Decoding JPEG frame
             frame = base64.b64decode(kwargs['frame'])
             frame = np.fromstring(frame, dtype='uint8')
@@ -693,7 +692,6 @@ class StatisticsLabel(Label):
 
     Attributes:
         FORMAT_DCT (dict): Dictionary mapping each data type to its format.
-        text (TYPE): Description
     """
 
     FORMAT_DCT = {
