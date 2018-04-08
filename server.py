@@ -205,9 +205,11 @@ class PypeServer(object):
                                                 '{} joined a call.'.format(self.user_dct[caller].name))
                                     else:
                                         # Creating new call
-                                        call = Call(audio_addr=self.get_multicast_addr(),
-                                                    video_addr=self.get_multicast_addr(),
-                                                    chat_addr=self.get_multicast_addr())
+                                        call = Call({
+                                            'audio': self.get_multicast_addr(),
+                                            'video': self.get_multicast_addr(),
+                                            'chat': self.get_multicast_addr()
+                                        })
                                         for user in [self.user_dct[caller], callee]:
                                             user.join_call(call)
                                         self.call_dct[caller] = call
@@ -223,11 +225,7 @@ class PypeServer(object):
                                         self.user_dct[user].conn][0] for user in call.user_lst}
 
                                     # Adding addresses to response message
-                                    response_msg['addrs'] = {
-                                        'audio': call.audio_addr,
-                                        'video': call.video_addr,
-                                        'chat': call.chat_addr
-                                    }
+                                    response_msg['addrs'] = call.addr_dct
                                     self.task_lst.append(
                                         Task(conn, response_msg))
                                 else:
@@ -359,6 +357,9 @@ class PypeServer(object):
 
         # Removing call if user number reduced to 1
         if len(call.user_lst) == 1:
+            # Returning allocated addresses to list
+            self.multicast_addr_lst += call.addr_dct.values()
+
             self.report_call_update(
                 subtype='call_remove', master=prev_master)
             del self.call_dct[call.master]
