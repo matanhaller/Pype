@@ -175,6 +175,12 @@ class PypePeer(object):
                 if 'payload' in json_obj:
                     if self.session and hasattr(self.session, 'aes_key'):
                         json_obj = self.session.decrypt_msg(json_obj)
+
+                        # Checking session nonce identity (to ensure integrity)
+                        session_nonce = base64.b64decode(
+                            json_obj['session_nonce'])
+                        if session_nonce != self.session.session_nonce:
+                            continue
                     else:
                         raw_data = raw_data[end_index:]
                         continue
@@ -484,6 +490,7 @@ class Session(object):
         audio_interface (pyaudio.PyAudio): Interface for accessing audio methods.
         audio_output_stream (pyaudio.Stream): Audio output stream object.
         AUDIO_SAMPLING_RATE (int): Audio sampling rate.
+        audio_stat_dct (dict): Audio statistics dictionary.
         clr (list): Username + optimal sending rate of CLR (current limiting receiver).
         content_conn_dct (dict): Dictionary of connections used for content transmission.
         control_conn_dct (dict): Dictionary of connections used for control transmission.
@@ -495,7 +502,6 @@ class Session(object):
         MULTICAST_CONN_TIMEOUT (int): Timeout of audio and video multicast connections.
         MULTICAST_CONTENT_PORT (int): Port allocated for content transmission (audio, video and chat).
         MULTICAST_CONTROL_PORT (int): Port allocated for control transmission (feedback, cryptographic info etc.).
-        packet_nonce_dct (dict): Dictionary for storing already used nonce (used for data integrity).
         rsa_keypair (RSAobj): RSA keypair object used for assymetric encryption and decryption.
         RSA_KEYS_SIZE (int): Size of RSA public and private keys.
         send_flag_dct (dict): Dictioanry with boolean values indicating whether to transmit audio and video packets.
@@ -553,10 +559,6 @@ class Session(object):
             # Creating session nonce
             self.session_nonce = os.urandom(Session.SESSION_NONCE_SIZE)
 
-            # Initializing packet nonce lists
-            self.packet_nonce_dct = {mode: []
-                                     for mode in ['audio', 'video', 'feedback']}
-
             self.crypto_conn.bind(('', Session.MULTICAST_CONTROL_PORT))
             self.crypto_conn.listen(1)
         else:
@@ -591,13 +593,15 @@ class Session(object):
             socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.unicast_control_conn.bind(('', Session.MULTICAST_CONTROL_PORT))
 
-        # Initializing audio and video sequence numbers
+        # Initializing audio, video and feedback sequence numbers
         self.seq_dct = {
             'audio': 0,
-            'video': 0
+            'video': 0,
+            'feedback': 0
         }
 
-        # Initializing video statistics dictionary
+        # Initializing audio and video statistics dictionaries
+        self.audio_stat_dct = {user: Tracker(user) for user in self.user_lst}
         self.video_stat_dct = {user: Tracker(user) for user in self.user_lst}
 
         # Initializing audio stream
@@ -636,6 +640,7 @@ class Session(object):
         if kwargs['subtype'] == 'user_join':
             self.user_lst.append(kwargs['name'])
             self.user_addr_dct[kwargs['name']] = kwargs['addr']
+            self.audio_stat_dct[kwargs['name']] = Tracker(kwargs['name'])
             self.video_stat_dct[kwargs['name']] = Tracker(kwargs['name'])
 
         # User leave
@@ -656,6 +661,7 @@ class Session(object):
                     peer = App.get_running_app().peer
                     peer.conn_lst.append(self.crypto_conn)
 
+            del self.audio_stat_dct[kwargs['name']]
             del self.video_stat_dct[kwargs['name']]
 
     def send_rsa_public_key(self):
@@ -736,11 +742,14 @@ class Session(object):
         if len(msg) % 16 != 0:
             msg += (16 - len(msg) % 16) * '\x00'
 
-        encrypted_msg = aes_cipher.encrypt(msg)
-        return {
-            'timestamp': None,
-            'payload': base64.b64encode(encrypted_msg)
+        payload = aes_cipher.encrypt(msg)
+        encrypted_msg = {
+            'payload': base64.b64encode(payload)
         }
+        if 'timestamp' in msg:
+            encrypted_msg['timestamp'] = None
+
+        return encrypted_msg
 
     def decrypt_msg(self, msg):
         """Decrypts message with AES symmetric encryption.
@@ -831,7 +840,7 @@ class Session(object):
             # Decoding and playing audio packets
             username = App.get_running_app().root_sm.current_screen.username
             for data in data_lst:
-                if data['src'] != username:
+                if data['src'] != username and self.audio_stat_dct[data['src']].check_packet_integrity(**data):
                     audio_chunk = base64.b64decode(data['chunk'])
                     self.audio_output_stream.write(audio_chunk)
 
@@ -897,10 +906,11 @@ class Session(object):
 
             # Displaying new frames on screen
             for data in data_lst:
-                root = App.get_running_app().root_sm.current_screen
-                if hasattr(root, 'session_layout') and data['src'] != root.username:
-                    root.session_layout.video_layout.update_frame(
-                        **data)
+                if self.video_stat_dct[data['src']].check_packet_integrity(**data):
+                    root = App.get_running_app().root_sm.current_screen
+                    if hasattr(root, 'session_layout') and data['src'] != root.username:
+                        root.session_layout.video_layout.update_frame(
+                            **data)
 
     @rate_limit(INITIAL_SENDING_RATE)
     def send_video(self):
@@ -973,8 +983,15 @@ class Session(object):
                         'subtype': 'control',
                         'mode': 'feedback',
                         'src': username,
+                        'seq': self.seq_dct['feedback'],
+                        'session_nonce': base64.b64encode(self.session_nonce),
+                        'packet_nonce': base64.b64encode(os.urandom(Session.SESSION_NONCE_SIZE)),
                         'rate': optimal_rate
                     }
+
+                    # Incrementing feedback packet sequence number
+                    self.seq_dct['feedback'] += 1
+
                     self.task_lst.append(Task(self.unicast_control_conn, feedback_msg, dst=(
                         self.user_addr_dct[self.master], Session.MULTICAST_CONTROL_PORT)))
 
@@ -990,6 +1007,9 @@ class Session(object):
 
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
+
+        Returns:
+            TYPE: Description
         """
 
         clr_user, clr_rate = self.clr

@@ -4,6 +4,7 @@
 # Imports
 import time
 import json
+import base64
 
 import matplotlib.pyplot as plt
 from numpy import exp
@@ -19,6 +20,7 @@ class Tracker(object):
         first_packet_flag (bool): Flag indicating whether the arrived packet is the first one.
         last_update_dct (dict): Dictionary mapping statistics type to its last update.
         lost_packets (int): The number of lost packets.
+        nonce_lst (list): List of received packet nonces (used for ensuring data integrity).
         recvd_bits (int): The number of received bits.
         recvd_packets_framedrop (int): The number of received packets
         recvd_packets_framerate (int): The number of received packets
@@ -45,6 +47,7 @@ class Tracker(object):
         self.call_start = time.time()
         self.first_packet_flag = True
         self.seq = 0
+        self.nonce_lst = []
         self.recvd_packets_framerate = 0
         self.recvd_packets_framedrop = 0
         self.recvd_bits = 0
@@ -67,6 +70,34 @@ class Tracker(object):
         self.arrived_lst = []
         self.last_update_dct = {stat: time.time() for stat in self.stat_dct}
         self.user = user
+
+    def check_packet_integrity(self, **kwargs):
+        """Checks if a packet is authentic i.e. sent by a real call participant.
+
+        Args:
+            **kwargs: Keyword arguments supplied in dictionary form.
+
+        Returns:
+            bool: Whether the packet is authentic.
+        """
+
+        # Checking distance from expected sequence number
+        if self.seq - kwargs['seq'] > 3:
+            return
+
+        # Checking for nonce reuse
+        packet_nonce = base64.b64decode(kwargs['packet_nonce'])
+        if packet_nonce in self.nonce_lst:
+            return False
+        else:
+            # Adding nonce to nonce list
+            self.nonce_lst.append(packet_nonce)
+
+            # Reducing nonce list size if necessary
+            if len(self.nonce_lst) > 3:
+                self.nonce_lst.pop(0)
+
+        return True
 
     def update(self, **kwargs):
         """Updates all statistics based on new packet.
