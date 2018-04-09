@@ -12,7 +12,7 @@ def rate_limit(rate):
     Args:
         rate (int): Upper bound of sending rate.
 
-    Returns:
+    No Longer Returned:
         function: Rate limit decorator.
     """
 
@@ -60,10 +60,10 @@ def new_thread(name):
         """Decorator which calls function on a new thread.
 
         Args:
-        	f (function): Function to run on a new thread.
+            f (function): Function to run on a new thread.
 
         Returns:
-        	function: Wrapper function to switch the original.
+            function: Wrapper function to switch the original.
         """
 
         def wrapper(*args, **kwargs):
