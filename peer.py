@@ -15,6 +15,7 @@ import cv2
 import base64
 
 import ntplib
+import matplotlib.pyplot as plt
 from Crypto.Cipher import AES
 from Crypto.PublicKey import RSA
 
@@ -36,13 +37,14 @@ class PypePeer(object):
     """App peer class.
 
     Attributes:
-        app_thread_running_flag (bool): Boolean indicating whether the app's Kivy thread is running.
+        app_thread_running_flag (bool): Flag indicating whether the app's Kivy thread is running.
         call_block (bool): Blocks user from calling other users when true.
         conn_lst (list): Active connections.
         gui_evt_conn (socket.socket): UDP connection with GUI component of app.
         logged_in (bool): Whether the peer has logged as a user.
         MAX_RECV_SIZE (int): Maximum number of bytes to receive at once. (static)
-        NTP_SERVER_ADDR (str): Description
+        NTP_SERVER_ADDR (str): Address of an Israeli NTP server.
+        plot_stats_flag (bool): Flag used for signalling that statistics are ready to be plotted.
         reset_frame_evt (ClockEvent): Frame resetting event called when a user stops transmitting video.
         SERVER_ADDR (tuple): Server address info. (static)
         server_conn (socket.socket): Connection with server.
@@ -53,7 +55,7 @@ class PypePeer(object):
 
     SERVER_ADDR = (get_option('server_ip_addr'), 5050)
     MAX_RECV_SIZE = 65536  # Bytes
-    NTP_SERVER_ADDR = 'pool.ntp.org'
+    NTP_SERVER_ADDR = 'il.pool.ntp.org'
 
     def __init__(self):
         """Constructor method.
@@ -69,6 +71,8 @@ class PypePeer(object):
         self.call_block = False
         self.session = None
         self.session_buffer = []
+        self.plot_stats_flag = False
+        self.stat_plot_loop()
 
     def get_gui_evt_port(self):
         """Get random allocated port number of GUI event listener.
@@ -430,17 +434,23 @@ class PypePeer(object):
         self.session.audio_send_loop()
         self.session.video_send_loop()
 
+    @new_thread('plot_thread')
+    def stat_plot_loop(self):
+        """Plots user audio and video statistics on a separate thread.
+        """
+
+        while self.app_thread_running_flag:
+            if self.session and self.plot_stats_flag:
+                self.session.plot_users_stats()
+                self.plot_stats_flag = False
+
     def leave_call(self):
         """Procedures to be done when leaving call.
         """
 
-        root = App.get_running_app().root_sm.current_screen
-        username = root.username
-
-        # Plotting statistics graph
-        for user in self.session.user_lst:
-            if user != username:
-                self.session.video_stat_dct[user].plot_stats()
+        # Signalling statistics plot thread to plot call statistics
+        peer = App.get_running_app().peer
+        peer.plot_stats_flag = True
 
         # Removing active conns from connection list
         self.conn_lst.remove(self.session.content_conn_dct['chat'])
@@ -454,6 +464,7 @@ class PypePeer(object):
         self.session = None
 
         # Switching to call layout
+        root = App.get_running_app().root_sm.current_screen
         root.switch_to_call_layout()
 
     def terminate(self):
@@ -502,6 +513,7 @@ class Session(object):
         MULTICAST_CONN_TIMEOUT (int): Timeout of audio and video multicast connections.
         MULTICAST_CONTENT_PORT (int): Port allocated for content transmission (audio, video and chat).
         MULTICAST_CONTROL_PORT (int): Port allocated for control transmission (feedback, cryptographic info etc.).
+        plot_stats_flag (bool): Description
         rsa_keypair (RSAobj): RSA keypair object used for assymetric encryption and decryption.
         RSA_KEYS_SIZE (int): Size of RSA public and private keys.
         send_flag_dct (dict): Dictioanry with boolean values indicating whether to transmit audio and video packets.
@@ -601,8 +613,8 @@ class Session(object):
         }
 
         # Initializing audio and video statistics dictionaries
-        self.audio_stat_dct = {user: Tracker(user) for user in self.user_lst}
-        self.video_stat_dct = {user: Tracker(user) for user in self.user_lst}
+        self.audio_stat_dct = {user: Tracker() for user in self.user_lst}
+        self.video_stat_dct = {user: Tracker() for user in self.user_lst}
 
         # Initializing audio stream
         self.audio_interface = pyaudio.PyAudio()
@@ -640,8 +652,8 @@ class Session(object):
         if kwargs['subtype'] == 'user_join':
             self.user_lst.append(kwargs['name'])
             self.user_addr_dct[kwargs['name']] = kwargs['addr']
-            self.audio_stat_dct[kwargs['name']] = Tracker(kwargs['name'])
-            self.video_stat_dct[kwargs['name']] = Tracker(kwargs['name'])
+            self.audio_stat_dct[kwargs['name']] = Tracker()
+            self.video_stat_dct[kwargs['name']] = Tracker()
 
         # User leave
         elif kwargs['subtype'] == 'user_leave':
@@ -738,7 +750,7 @@ class Session(object):
         aes_cipher = AES.new(self.aes_key, AES.MODE_CBC, self.aes_iv)
 
         # Preparing message for encryption
-        msg = json.dumps(msg)
+        msg = json.dumps(msg, separators=(',', ':'))
         if len(msg) % 16 != 0:
             msg += (16 - len(msg) % 16) * '\x00'
 
@@ -843,6 +855,11 @@ class Session(object):
                 if data['src'] != username and self.audio_stat_dct[data['src']].check_packet_integrity(**data):
                     audio_chunk = base64.b64decode(data['chunk'])
                     self.audio_output_stream.write(audio_chunk)
+
+                # Updating audio statistics
+                if peer.session and data['src'] in peer.session.user_lst:
+                    tracker = peer.session.audio_stat_dct[data['src']]
+                    tracker.update(**data)
 
     def send_audio(self):
         """Sends encrypted audio packet to multicast group.
@@ -1042,6 +1059,49 @@ class Session(object):
             if user != username:
                 stats = self.video_stat_dct[user].stat_dct
                 video_display_dct[user].stat_lbl.update(**stats)
+
+    def plot_stats(self, user):
+        """Plots audio and video statistics of user.
+
+        Args:
+            user (str): User whose statistics are to be plotted.
+        """
+
+        audio_tracker = self.audio_stat_dct[user]
+        video_tracker = self.video_stat_dct[user]
+
+        rows, cols = len(audio_tracker.stat_dct), 1
+        row_index = 1
+
+        plt.suptitle('Call statistics: ' + user)
+
+        for stat in audio_tracker.stat_dct:
+            plt.subplot(rows, cols, row_index)
+            plt.plot(audio_tracker.x_val_dct[
+                     stat], audio_tracker.y_val_dct[stat],
+                     color='red', label='audio')
+            plt.plot(video_tracker.x_val_dct[
+                     stat], video_tracker.y_val_dct[stat],
+                     color='blue', label='video')
+            if row_index == 1:
+                plt.legend()
+            plt.ylabel('{} ({})'.format(stat, audio_tracker.unit_dct[stat]))
+            row_index += 1
+
+        plt.xlabel('time (s)')
+
+        plt.show()
+
+    def plot_users_stats(self):
+        """Plots audio and video statistics of all users in call.
+        """
+
+        root = App.get_running_app().root_sm.current_screen
+        username = root.username
+
+        for user in self.user_lst:
+            if user != username:
+                self.plot_stats(user)
 
     def terminate(self):
         """A series of operations to be done before session terminates.
