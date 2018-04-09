@@ -6,7 +6,6 @@ import time
 import json
 import base64
 
-import matplotlib.pyplot as plt
 from numpy import exp
 
 
@@ -30,18 +29,14 @@ class Tracker(object):
          packets yet to arrive.
         unit_dct (dict): Dictionary mapping each statistic to its unit of measurement.
          (for plot)
-        user (str): Username of user whose statistics are being tracked.
         x_val_dct (dict): Dictionary for tracking x-axis values of statistics.
          (for plot)
         y_val_dct (dict): Dictionary for tracking y-axis values of statistics.
          (for plot)
     """
 
-    def __init__(self, user):
+    def __init__(self):
         """Constructor method
-
-        Args:
-            user (str): Username of user whose statistics are to be tracked.
         """
 
         self.call_start = time.time()
@@ -69,7 +64,6 @@ class Tracker(object):
         self.tracking_dct = {}
         self.arrived_lst = []
         self.last_update_dct = {stat: time.time() for stat in self.stat_dct}
-        self.user = user
 
     def check_packet_integrity(self, **kwargs):
         """Checks if a packet is authentic i.e. sent by a real call participant.
@@ -182,7 +176,7 @@ class Tracker(object):
             **kwargs: Keyword arguments supplied in dictionary form.
         """
 
-        self.recvd_bits += len(json.dumps(kwargs)) * 8
+        self.recvd_bits += len(json.dumps(kwargs, separators=(',', ':'))) * 8
         delta_t = time.time() - self.last_update_dct['bitrate']
 
         if delta_t > 0.5:
@@ -299,29 +293,3 @@ class Tracker(object):
             return int(1.75 / self.stat_dct['latency'])
         except ZeroDivisionError:
             return None
-
-    def plot_stats(self, stats=None):
-        """Plots statistics as a 2D scatterplot with a connecting line.
-
-        Args:
-            stats (list, optional): List of statistics to plot.
-             (defaults to all statistics)
-        """
-
-        if not stats:
-            stats = self.stat_dct.keys()
-
-        rows, cols = len(stats), 1
-        row_index = 1
-
-        for stat in stats:
-            plt.subplot(rows, cols, row_index)
-            if row_index == 1:
-                plt.title('Call statistics: ' + self.user)
-            plt.plot(self.x_val_dct[stat], self.y_val_dct[stat])
-            plt.ylabel('{} ({})'.format(stat, self.unit_dct[stat]))
-            row_index += 1
-
-        plt.xlabel('time (s)')
-
-        plt.show()
