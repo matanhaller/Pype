@@ -2,6 +2,7 @@
 """
 
 # Imports
+import FileDialog
 import json
 import threading
 import socket
@@ -892,7 +893,7 @@ class PypeApp(App):
         """
 
         self.gui_evt_sender.sendto(json.dumps(
-            data), ('localhost', self.gui_evt_port))
+            data, separators=(',', ':')), ('localhost', self.gui_evt_port))
 
     def on_stop(self):
         """Application close event callback.
