@@ -72,7 +72,8 @@ class PypePeer(object):
         self.session = None
         self.session_buffer = []
         self.plot_stats_flag = False
-        self.stat_plot_loop()
+        if get_option('plot_stats'):
+            self.stat_plot_loop()
 
     def get_gui_evt_port(self):
         """Get random allocated port number of GUI event listener.
@@ -112,8 +113,9 @@ class PypePeer(object):
 
             # Handling call procedures
             if self.session and hasattr(root, 'session_layout'):
-                # Sending rate feedback to all active peers in call
-                self.session.send_optimal_rates()
+                if get_option('feedback'):
+                    # Sending rate feedback to all active peers in call
+                    self.session.send_optimal_rates()
 
                 # Updating statistics on screen
                 self.session.update_stats()
@@ -854,7 +856,8 @@ class Session(object):
             for data in data_lst:
                 if data['src'] != username and self.audio_stat_dct[data['src']].check_packet_integrity(**data):
                     audio_chunk = base64.b64decode(data['chunk'])
-                    self.audio_output_stream.write(audio_chunk)
+                    if data['src'] == self.master:
+                        self.audio_output_stream.write(audio_chunk)
 
                 # Updating audio statistics
                 if peer.session and data['src'] in peer.session.user_lst:
@@ -1024,9 +1027,6 @@ class Session(object):
 
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
-
-        Returns:
-            TYPE: Description
         """
 
         clr_user, clr_rate = self.clr
@@ -1067,15 +1067,23 @@ class Session(object):
             user (str): User whose statistics are to be plotted.
         """
 
+        # Audio and video tracker objects
         audio_tracker = self.audio_stat_dct[user]
         video_tracker = self.video_stat_dct[user]
 
-        rows, cols = len(audio_tracker.stat_dct), 1
+        # Setting plot title
+        plt.suptitle('Call statistics: ' + user, fontsize=24)
+
+        # Getting statistics to plot from configuration file
+        if get_option('stats_to_plot') == 'all':
+            stats_to_plot = audio_tracker.stat_dct.keys()
+        else:
+            stats_to_plot = get_option('stats_to_plot')
+
+        # Ploting statistics
+        rows, cols = len(stats_to_plot), 1
         row_index = 1
-
-        plt.suptitle('Call statistics: ' + user)
-
-        for stat in audio_tracker.stat_dct:
+        for stat in stats_to_plot:
             plt.subplot(rows, cols, row_index)
             plt.plot(audio_tracker.x_val_dct[
                      stat], audio_tracker.y_val_dct[stat],
@@ -1090,6 +1098,7 @@ class Session(object):
 
         plt.xlabel('time (s)')
 
+        # Displaying plot
         plt.show()
 
     def plot_users_stats(self):
