@@ -1,7 +1,7 @@
 """Configuration file parsing interface.
 
 Attributes:
-    config (ConfigParser): Configuration file parser object. 
+    config (ConfigParser): Configuration file parser object.
     CONFIG_FILE_PATH (str): Configuration file path.
 """
 
@@ -31,4 +31,7 @@ def get_option(option):
         try:
             return config.getboolean('Header', option)
         except ValueError:
-            return config.get('Header', option)
+            option = config.get('Header', option)
+            if ',' in option:
+                return option.split(',')
+            return option
