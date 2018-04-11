@@ -5,7 +5,7 @@
 class User(object):
 
     """App user class.
-
+    
     Attributes:
         call (Call): The call in which the user is in (None if he's not).
         conn (socket.socket): Connection for communicating with user.
@@ -15,7 +15,7 @@ class User(object):
 
     def __init__(self, **kwargs):
         """Constructor method.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -36,7 +36,7 @@ class User(object):
 
     def join_call(self, call):
         """Adds user to call.
-
+        
         Args:
             call (Call): Call to join.
         """
