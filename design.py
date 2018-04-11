@@ -27,7 +27,7 @@ from kivy.core.window import Window
 from kivy.core.text import LabelBase
 
 WINDOW_COLOR = '#2C3E50'
-GRAY = '#7F8C8D'
+GRAY = '#34495E'
 LIGHT_COLOR_DCT = {'turqoise': '#1ABC9C',
                    'green': '#2ECC71',
                    'blue': '#3498DB',
@@ -47,7 +47,8 @@ DARK_COLOR_DCT = {'turqoise': '#16A085',
 Window.clearcolor = rgba(WINDOW_COLOR)
 
 # Registering external fonts to the app
-LabelBase.register(name='LatoRegular', fn_regular='fonts/Lato-Regular.ttf')
+LabelBase.register(name='LatoRegular',
+                   fn_regular='fonts/Lato-Regular.ttf', fn_bold='fonts/Lato-Bold.ttf')
 LabelBase.register(name='LatoBold', fn_regular='fonts/Lato-Bold.ttf')
 LabelBase.register(name='LatoLight', fn_regular='fonts/Lato-Light.ttf')
 
