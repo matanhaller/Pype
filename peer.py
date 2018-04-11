@@ -15,6 +15,7 @@ import cv2
 import base64
 
 import ntplib
+import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 from Crypto.Cipher import AES
 from Crypto.PublicKey import RSA
@@ -245,10 +246,8 @@ class PypePeer(object):
                 # Join request/response
                 if data['type'] == 'join':
                     if data['subtype'] == 'request':
-                        self.task_lst.append(Task(self.server_conn, {
-                            'type': 'join',
-                            'name': data['name']
-                        }))
+                        del data['subtype']
+                        self.task_lst.append(Task(self.server_conn, data))
 
                     elif data['subtype'] == 'response':
                         if data['status'] == 'ok':
@@ -518,7 +517,7 @@ class Session(object):
         plot_stats_flag (bool): Description
         rsa_keypair (RSAobj): RSA keypair object used for assymetric encryption and decryption.
         RSA_KEYS_SIZE (int): Size of RSA public and private keys.
-        send_flag_dct (dict): Dictioanry with boolean values indicating whether to transmit audio and video packets.
+        send_flag_dct (dict): Dictionary with boolean values indicating whether to transmit audio and video packets.
         seq_dct (dict): Dictionary of audio and video sequence numbers.
         session_nonce (str): Nonce generated at the beginning of call and keeps data integrity.
         SESSION_NONCE_SIZE (int): Size of session nonce.
@@ -666,10 +665,12 @@ class Session(object):
 
                 # Creating TCP connection for cryptographic info exchange is
                 # user is the new call master
-                username = App.get_running_aPpp().root_sm.current_screen.username
+                username = App.get_running_app().root_sm.current_screen.username
                 if kwargs['new_master'] == username:
                     self.crypto_conn = socket.socket(
                         socket.AF_INET, socket.SOCK_STREAM)
+                    self.crypto_conn.setsockopt(
+                        socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                     self.crypto_conn.bind(('', Session.MULTICAST_CONTROL_PORT))
                     self.crypto_conn.listen(1)
                     peer = App.get_running_app().peer
@@ -854,15 +855,15 @@ class Session(object):
             # Decoding and playing audio packets
             username = App.get_running_app().root_sm.current_screen.username
             for data in data_lst:
-                if data['src'] != username and self.audio_stat_dct[data['src']].check_packet_integrity(**data):
-                    audio_chunk = base64.b64decode(data['chunk'])
-                    if data['src'] == self.master:
+                if data['src'] in self.audio_stat_dct:
+                    if data['src'] != username and self.audio_stat_dct[data['src']].check_packet_integrity(**data):
+                        audio_chunk = base64.b64decode(data['chunk'])
                         self.audio_output_stream.write(audio_chunk)
 
-                # Updating audio statistics
-                if peer.session and data['src'] in peer.session.user_lst:
-                    tracker = peer.session.audio_stat_dct[data['src']]
-                    tracker.update(**data)
+                    # Updating audio statistics
+                    if peer.session and data['src'] in peer.session.user_lst:
+                        tracker = peer.session.audio_stat_dct[data['src']]
+                        tracker.update(**data)
 
     def send_audio(self):
         """Sends encrypted audio packet to multicast group.
@@ -926,11 +927,12 @@ class Session(object):
 
             # Displaying new frames on screen
             for data in data_lst:
-                if self.video_stat_dct[data['src']].check_packet_integrity(**data):
-                    root = App.get_running_app().root_sm.current_screen
-                    if hasattr(root, 'session_layout') and data['src'] != root.username:
-                        root.session_layout.video_layout.update_frame(
-                            **data)
+                if data['src'] in self.video_stat_dct:
+                    if self.video_stat_dct[data['src']].check_packet_integrity(**data):
+                        root = App.get_running_app().root_sm.current_screen
+                        if hasattr(root, 'session_layout') and data['src'] != root.username:
+                            root.session_layout.video_layout.update_frame(
+                                **data)
 
     @rate_limit(INITIAL_SENDING_RATE)
     def send_video(self):
@@ -1072,7 +1074,8 @@ class Session(object):
         video_tracker = self.video_stat_dct[user]
 
         # Setting plot title
-        plt.suptitle('Call statistics: ' + user, fontsize=24)
+        plt.suptitle('Call statistics: ' + user,
+                     fontsize=24)
 
         # Getting statistics to plot from configuration file
         if get_option('stats_to_plot') == 'all':
@@ -1093,13 +1096,19 @@ class Session(object):
                      color='blue', label='video')
             if row_index == 1:
                 plt.legend()
-            plt.ylabel('{} ({})'.format(stat, audio_tracker.unit_dct[stat]))
+            plt.ylabel('{} ({})'.format(stat, audio_tracker.unit_dct[
+                       stat]))
             row_index += 1
 
         plt.xlabel('time (s)')
 
         # Displaying plot
         plt.show()
+
+        # Resetting plot
+        plt.cla()
+        plt.clf()
+        plt.close()
 
     def plot_users_stats(self):
         """Plots audio and video statistics of all users in call.
