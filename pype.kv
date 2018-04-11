@@ -1,6 +1,20 @@
-#<Button>:
-#	background_normal: ''
-#	background_down: ''
+#:import rgba kivy.utils.rgba
+#:import design design
+
+<Label>:
+	font_name: 'LatoRegular'
+
+<Button>:
+	font_name: 'LatoBold'
+	background_normal: ''
+	background_down: ''
+
+<TextInput>:
+	multiline: False
+	hint_text_color: rgba(design.GRAY)
+	background_normal: ''
+	background_active: ''
+
 
 <ScrollView>:
 	size_hint_y: 0.8
@@ -13,6 +27,15 @@
 <ToggleButton>:
 	state: 'normal'
 
+<ErrorLabel>:
+	font_size: 24
+	canvas.before:
+		Color:
+			rgba: rgba(design.get_color('light', 'red'))
+		Rectangle:
+			pos: self.pos
+			size: self.size
+
 <EntryScreen>:
 	id: entry_screen
 	BoxLayout:
@@ -21,16 +44,18 @@
 		Label:
 			text: 'Welcome to Pype'
 			font_size: 48
+			font_name: 'LatoBold'
 		TextInput:
 			id: username_input
-			multiline: False
 			hint_text: 'Enter username'
-			font_size: 24
+			font_size: 36
+			font_name: 'LatoLight'
 			on_text_validate: root.on_join_btn_press()
 		Button:
 			id: join_btn
 			text: 'Join'
 			font_size: 36
+			background_color: rgba(design.get_color('light', 'green'))
 			on_press: root.on_join_btn_press()
 
 <MainScreen>:
@@ -44,7 +69,8 @@
 			Label:
 				size_hint_y: 0.2
 				text: 'Welcome, ' + root.username
-				font_size: 36
+				font_size: 48
+				font_name: 'LatoBold'
 			BoxLayout:
 				id: interface_layout
 				orientation: 'horizontal'
@@ -58,35 +84,53 @@
 	size_hint_y: None
 	height: 50
 	orientation: 'horizontal'
+	spacing: 20
+	canvas.before:
+		Color:
+			rgba: rgba(design.get_color('light', self.color))
+		Rectangle:
+			pos: self.pos
+			size: self.size
 	BoxLayout:
 		orientation: 'vertical'
 		size_hint_x: 0.8
 		Label:
 			id: user_lbl
-			size_hint_y: 0.8
+			size_hint_y: 0.6
 			text: root.username
-			font_size: 18
+			font_size: 24
 		Label:
 			id: status_lbl
-			size_hint_y: 0.2
+			size_hint_y: 0.4
 			text: root.status
-			font_size: 14
+			font_size: 18
+			font_name: 'LatoLight'
 	Button:
 		size_hint_x: 0.2
+		background_color: rgba(design.get_color('dark', root.color))
 		text: 'Call'
+		font_size: 24
 		on_press: root.on_call_btn_press()
 
 <CallSlot>:
+	canvas.before:
+		Color:
+			rgba: rgba(design.get_color('light', root.color))
+		Rectangle:
+			pos: self.pos
+			size: self.size
 	size_hint_y: None
 	height: 50
 	orientation: 'horizontal'
 	Label:
 		id: user_lbl
 		size_hint_x: 0.8
-		font_size: 18
+		font_size: 24
 	Button:
 		size_hint_x: 0.2
+		background_color: rgba(design.get_color('dark', root.color))
 		text: 'Join'
+		font_size: 24
 		on_press: root.on_join_btn_press()
 
 <UserLayout>:
@@ -96,6 +140,7 @@
 		id: user_num_lbl
 		size_hint_y: 0.2
 		font_size: 24
+		font_name: 'LatoBold'
 	ScrollView:
 		GridLayout:
 			id: user_slot_layout
@@ -108,6 +153,7 @@
 		id: call_num_lbl
 		size_hint_y: 0.2
 		font_size: 24
+		font_name: 'LatoBold'
 	ScrollView:
 		GridLayout:
 			id: call_slot_layout
@@ -117,21 +163,28 @@
 	orientation: 'horizontal'
 	Label:
 		text: 'Calling {}...'.format(root.username)
+		font_size: 24
 	Label:
 		id: counter
 		text: '00:00'
+		font_size: 24
 
 <CallFooter>
 	orientation: 'horizontal'
 	Label:
 		size_hint_x: 0.6
 		text: '{} is calling'.format(root.username)
+		font_size: 24
 	Button:
 		size_hint_x: 0.2
+		background_color: rgba(design.get_color('dark', 'green'))
+		font_size: 24
 		text: 'Accept'
 		on_press: root.on_call_btn_press('accept')
 	Button:
 		size_hint_x: 0.2
+		background_color: rgba(design.get_color('dark', 'red'))
+		font_size: 24
 		text: 'Reject'
 		on_press: root.on_call_btn_press('reject')
 
@@ -156,7 +209,7 @@
 <PeerVideoDisplay>:
 	Image:
 		id: frame
-		source: 'blank.png'
+		source: 'images/blank.png'
 		size_hint: 1, 1
 		pos_hint: {'x': 0, 'y': 0}
 		keep_ratio: False
@@ -169,7 +222,8 @@
 <StatisticsLabel>:
 	size_hint: 0.25, 0.25
 	pos_hint: {'x': 0, 'y': 0}
-	color: 0, 1, 0, 1
+	color: 1, 1, 1, 1
+	font_name: 'LatoBold'
     canvas:
         Color:
             rgba: 0, 0, 0, 0
@@ -191,11 +245,11 @@
 		TextInput:
 			id: chat_input
 			size_hint_x: 0.8
-			multiline: False
 			hint_text: 'Enter message'
 			on_text_validate: root.on_send_btn_press()
 		Button:
 			size_hint_x: 0.2
+			background_color: rgba(design.get_color('dark', 'turqoise'))
 			text: 'Send'
 			on_press: root.on_send_btn_press()
 
@@ -204,7 +258,7 @@
 	font_size: 18
 	text_size: self.size
 	halign: 'left'
-	text: self.msg
+	text: root.msg
 	markup: True
 
 <SessionFooter>:
@@ -212,19 +266,28 @@
 	Label:
 		id: counter
 		text: '00:00'
+		font_size: 24
 	BoxLayout:
 		orientation: 'vertical'
 		ToggleButton:
 			id: audio
+			background_color: rgba(design.get_color('dark', 'orange'))
 			text: 'Audio'
+			font_size: 24
 			on_press: root.on_medium_toggle_btn_press('audio')
 		ToggleButton:
 			id: video
+			background_color: rgba(design.get_color('dark', 'purple'))
 			text: 'Video'
+			font_size: 24
 			on_press: root.on_medium_toggle_btn_press('video')
 	Button:
+		background_color: rgba(design.get_color('dark', 'blue'))
 		text: 'Statistics'
+		font_size: 24
 		on_press: root.on_stat_btn_press()
 	Button:
+		background_color: rgba(design.get_color('dark', 'red'))
 		text: 'End call'
+		font_size: 24
 		on_press: root.on_end_call_btn_press()

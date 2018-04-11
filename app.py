@@ -15,7 +15,6 @@ import numpy as np
 import cv2
 
 from kivy.app import App
-from kivy.config import Config
 from kivy.clock import Clock, mainthread
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.floatlayout import FloatLayout
@@ -26,9 +25,19 @@ from kivy.uix.widget import Widget
 from kivy.uix.camera import Camera
 from kivy.uix.image import Image
 from kivy.graphics.texture import Texture
+from kivy.utils import rgba
 
+import design
 from peer import PypePeer
 from configparser import get_option
+
+
+class ErrorLabel(Label):
+
+    """Red label for displaying error messages (see .kv file for structure).
+    """
+
+    pass
 
 
 class EntryScreen(Screen):
@@ -68,7 +77,7 @@ class EntryScreen(Screen):
                 app.send_gui_evt({
                     'type': 'join',
                     'subtype': 'request',
-                    'name': username
+                    'name': username,
                 })
         except UnicodeEncodeError:
             err_msg = 'Invalid username'
@@ -86,7 +95,7 @@ class EntryScreen(Screen):
         if hasattr(self, 'bottom_lbl'):
             self.bottom_lbl.text = msg
         else:
-            self.bottom_lbl = Label(text=msg, size_hint_y=0.4)
+            self.bottom_lbl = ErrorLabel(text=msg, size_hint_y=0.4)
             self.ids.main_layout.add_widget(self.bottom_lbl)
 
 
@@ -140,7 +149,7 @@ class MainScreen(Screen):
 
         # User not available
         elif kwargs['mode'] == 'user_not_available':
-            self.footer_widget = Label(text='User is in call')
+            self.footer_widget = ErrorLabel(text='User is in call')
 
         # Call
         elif kwargs['mode'] == 'call':
@@ -148,12 +157,12 @@ class MainScreen(Screen):
 
         # Rejected call
         elif kwargs['mode'] == 'rejected_call':
-            self.footer_widget = Label(
+            self.footer_widget = ErrorLabel(
                 text='Call has been rejected by user')
 
         # Invalid text
         elif kwargs['mode'] == 'invalid_text':
-            self.footer_widget = Label(text='Invalid text')
+            self.footer_widget = ErrorLabel(text='Invalid text')
 
         # Scheduling widget removal if necessary
         if kwargs['mode'] in ['user_not_available', 'rejected_call', 'invalid_text']:
@@ -212,6 +221,7 @@ class UserSlot(BoxLayout):
     """Slot representing an online user (see .kv file for structure).
 
     Attributes:
+        color (str): Slot color (for design purposes only.)
         status (str): Whether the user is in call (available/in call).
         username (str): Username.
     """
@@ -225,6 +235,7 @@ class UserSlot(BoxLayout):
 
         self.username = kwargs['name']
         self.status = kwargs['status']
+        self.color = design.get_random_color()
         BoxLayout.__init__(self)
 
     def on_call_btn_press(self):
@@ -257,6 +268,7 @@ class CallSlot(BoxLayout):
     """Slot representing an active call (see .kv file for structure).
 
     Attributes:
+        color (str): Slot color (for design purposes only).
         master (str): Username of call master.
         user_lst (list): List of all users in call.
     """
@@ -270,6 +282,7 @@ class CallSlot(BoxLayout):
 
         self.user_lst = kwargs['user_lst']
         self.master = kwargs['master']
+        self.color = design.get_random_color()
         BoxLayout.__init__(self)
         self.ids.user_lbl.text = ', '.join(kwargs['user_lst'])
 
@@ -693,6 +706,7 @@ class StatisticsLabel(Label):
 
     Attributes:
         FORMAT_DCT (dict): Dictionary mapping each data type to its format.
+        text (TYPE): Description
     """
 
     FORMAT_DCT = {
@@ -721,7 +735,7 @@ class StatisticsLabel(Label):
         """
 
         self.text = '\n'.join(['{}: {}'.format(key, StatisticsLabel.FORMAT_DCT[
-                              key](val)) for key, val in kwargs.items()])
+            key](val)) for key, val in kwargs.items()])
 
 
 class ChatLayout(BoxLayout):
@@ -845,6 +859,17 @@ class SessionFooter(BoxLayout):
             'state': state
         })
 
+        # Changing button color accordingly
+        if state == 'down':
+            self.ids[medium].background_color = rgba(design.GRAY)
+        else:
+            if medium == 'audio':
+                self.ids[medium].background_color = rgba(
+                    design.get_color('dark', 'orange'))
+            else:
+                self.ids[medium].background_color = rgba(
+                    design.get_color('dark', 'purple'))
+
     def on_stat_btn_press(self):
         """Shows/hides call statistics from display.
         """
@@ -878,12 +903,7 @@ class PypeApp(App):
          the communication component of app.
         peer (PypePeer): App's communication component.
         root_sm (ScreenManager): Root screen manager.
-        WINDOW_HEIGHT (int): Window height.
-        WINDOW_WIDTH (int): Window width.
     """
-
-    WINDOW_WIDTH = 1280
-    WINDOW_HEIGHT = 720
 
     def send_gui_evt(self, data):
         """Sends GUI event to communication component of app.
@@ -909,10 +929,6 @@ class PypeApp(App):
         Returns:
             ScreenManager: Root screen manager.
         """
-
-        # Setting window size
-        Config.set('graphics', 'width', PypeApp.WINDOW_WIDTH)
-        Config.set('graphics', 'height', PypeApp.WINDOW_HEIGHT)
 
         # Creating root object with all app screens
         self.root_sm = ScreenManager()
