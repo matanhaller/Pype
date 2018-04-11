@@ -139,7 +139,7 @@ class PypeServer(object):
                                     if username != data['name']:
                                         user_info_lst.append({
                                             'name': username,
-                                            'status': self.user_dct[username].status
+                                            'status': self.user_dct[username].status,
                                         })
                                 for master in self.call_dct:
                                     call_info_lst.append({
