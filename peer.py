@@ -508,13 +508,13 @@ class Session(object):
         control_conn_dct (dict): Dictionary of connections used for control transmission.
         crypto_conn (socket.socket): TCP connection used for exchanging cyptographic info.
         INITIAL_SENDING_RATE (int): Initial sending rate.
+        INTIAL_SEQ_RANGE (int): Range of possible randomly generated initial sequence numbers.
         keep_sending_flag (bool): Flag indicating whether to keep sending audio and video packets.
         master (str): Currrent call master.
         multicast_addr_dct (dict): Dictionary of multicast addresses allocated by server.
         MULTICAST_CONN_TIMEOUT (int): Timeout of audio and video multicast connections.
         MULTICAST_CONTENT_PORT (int): Port allocated for content transmission (audio, video and chat).
         MULTICAST_CONTROL_PORT (int): Port allocated for control transmission (feedback, cryptographic info etc.).
-        plot_stats_flag (bool): Description
         rsa_keypair (RSAobj): RSA keypair object used for assymetric encryption and decryption.
         RSA_KEYS_SIZE (int): Size of RSA public and private keys.
         send_flag_dct (dict): Dictionary with boolean values indicating whether to transmit audio and video packets.
@@ -529,11 +529,15 @@ class Session(object):
          after JPEG compression.
         video_stat_dct (dict): Video statistics dictionary.
         webcam_stream (WebcamStream): Live webcam stream object.
+
+    Deleted Attributes:
+        plot_stats_flag (bool): Description
     """
 
     MULTICAST_CONTROL_PORT = 8192
     MULTICAST_CONTENT_PORT = 8193
     MULTICAST_CONN_TIMEOUT = 1
+    INTIAL_SEQ_RANGE = 65536
     VIDEO_COMPRESSION_QUALITY = 50
     AUDIO_SAMPLING_RATE = 16000  # Hz
     AUDIO_CHUNK_SIZE = 1024  # Samples
@@ -579,6 +583,7 @@ class Session(object):
             # cryptographic info
             Logger.info('Creating RSA keypair.')
             self.rsa_keypair = RSA.generate(Session.RSA_KEYS_SIZE)
+            Logger.info('RSA keypair generation complete.')
 
             self.crypto_conn.connect(
                 (self.user_addr_dct[self.master], Session.MULTICAST_CONTROL_PORT))
@@ -606,11 +611,12 @@ class Session(object):
             socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.unicast_control_conn.bind(('', Session.MULTICAST_CONTROL_PORT))
 
-        # Initializing audio, video and feedback sequence numbers with random values
+        # Initializing audio, video and feedback sequence numbers with random
+        # values
         self.seq_dct = {
-            'audio': random.randint(0, 65536),
-            'video': random.randint(0, 65536),
-            'feedback': random.randint(0, 65536)
+            'audio': random.randint(0, Session.INTIAL_SEQ_RANGE),
+            'video': random.randint(0, Session.INTIAL_SEQ_RANGE),
+            'feedback': random.randint(0, Session.INTIAL_SEQ_RANGE)
         }
 
         # Initializing audio and video statistics dictionaries
