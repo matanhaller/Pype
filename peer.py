@@ -13,6 +13,7 @@ import struct
 import pyaudio
 import cv2
 import base64
+import random
 
 import ntplib
 import matplotlib.font_manager as fm
@@ -605,11 +606,11 @@ class Session(object):
             socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.unicast_control_conn.bind(('', Session.MULTICAST_CONTROL_PORT))
 
-        # Initializing audio, video and feedback sequence numbers
+        # Initializing audio, video and feedback sequence numbers with random values
         self.seq_dct = {
-            'audio': 0,
-            'video': 0,
-            'feedback': 0
+            'audio': random.randint(0, 65536),
+            'video': random.randint(0, 65536),
+            'feedback': random.randint(0, 65536)
         }
 
         # Initializing audio and video statistics dictionaries
