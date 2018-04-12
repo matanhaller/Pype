@@ -226,10 +226,10 @@ class PypePeer(object):
                     else:
                         raw_data, addr = conn.recvfrom(PypePeer.MAX_RECV_SIZE)
 
-                    # Closing connection if necessary
-                    if not raw_data:
-                        self.conn_lst.remove(conn)
-                        conn.close()
+                # Closing connection if necessary
+                if not raw_data:
+                    self.conn_lst.remove(conn)
+                    conn.close()
             except socket.error as e:
                 Logger.info('Unexpected error: ' + str(e))
                 continue
@@ -458,8 +458,6 @@ class PypePeer(object):
         for conn in self.session.control_conn_dct.values():
             self.conn_lst.remove(conn)
         self.conn_lst.remove(self.session.unicast_control_conn)
-        self.conn_lst.remove(self.session.crypto_conn)
-        self.session.crypto_conn.close()
 
         # Closing session
         self.session.terminate()
@@ -739,6 +737,11 @@ class Session(object):
         self.aes_key = decrypted_key
         self.aes_iv = base64.b64decode(kwargs['iv'])
         self.session_nonce = decrypted_nonce
+
+        # Closing TCP cryptographic info exchange connection
+        peer = App.get_running_app().peer
+        peer.conn_lst.remove(self.crypto_conn)
+        self.crypto_conn.close()
 
     def encrypt_msg(self, msg):
         """Encrypts message with AES symmetric encryption.
@@ -1144,8 +1147,6 @@ class Session(object):
         for conn in self.content_conn_dct.values() + self.control_conn_dct.values():
             conn.close()
         self.unicast_control_conn.close()
-        if self.crypto_conn:
-            self.crypto_conn.close()
 
         # Closing audio streams
         self.audio_input_stream.stop_stream()
