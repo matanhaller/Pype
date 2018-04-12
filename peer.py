@@ -220,7 +220,7 @@ class PypePeer(object):
                     new_crypto_conn, addr = conn.accept()
                     self.conn_lst.append(new_crypto_conn)
                     continue
-                elif conn:
+                else:
                     if conn.type == socket.SOCK_STREAM:
                         raw_data = conn.recv(PypePeer.MAX_RECV_SIZE)
                     else:
@@ -232,7 +232,7 @@ class PypePeer(object):
                     conn.close()
             except socket.error as e:
                 Logger.info('Unexpected error: ' + str(e))
-                continue
+                break
 
             # Parsing JSON data
             data_lst = self.get_jsons(raw_data)
@@ -660,12 +660,13 @@ class Session(object):
             self.user_lst.remove(kwargs['name'])
             del self.user_addr_dct[kwargs['name']]
             if 'new_master' in kwargs:
+                prev_master = self.master
                 self.master = kwargs['new_master']
 
                 # Creating TCP connection for cryptographic info exchange is
                 # user is the new call master
                 username = App.get_running_app().root_sm.current_screen.username
-                if kwargs['new_master'] == username:
+                if prev_master != username and self.master == username:
                     self.crypto_conn = socket.socket(
                         socket.AF_INET, socket.SOCK_STREAM)
                     self.crypto_conn.setsockopt(
@@ -742,6 +743,7 @@ class Session(object):
         peer = App.get_running_app().peer
         peer.conn_lst.remove(self.crypto_conn)
         self.crypto_conn.close()
+        self.crypto_conn = None
 
     def encrypt_msg(self, msg):
         """Encrypts message with AES symmetric encryption.
@@ -1147,6 +1149,10 @@ class Session(object):
         for conn in self.content_conn_dct.values() + self.control_conn_dct.values():
             conn.close()
         self.unicast_control_conn.close()
+        if self.crypto_conn:
+            peer = App.get_running_app().peer
+            peer.conn_lst.remove(self.crypto_conn)
+            self.crypto_conn.close()
 
         # Closing audio streams
         self.audio_input_stream.stop_stream()
