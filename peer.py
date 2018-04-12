@@ -459,6 +459,7 @@ class PypePeer(object):
             self.conn_lst.remove(conn)
         self.conn_lst.remove(self.session.unicast_control_conn)
         self.conn_lst.remove(self.session.crypto_conn)
+        self.session.crypto_conn.close()
 
         # Closing session
         self.session.terminate()
