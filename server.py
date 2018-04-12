@@ -215,7 +215,7 @@ class PypeServer(object):
                                         self.call_dct[caller] = call
                                         self.report_call_update(
                                             subtype='call_add', master=caller, user_lst=call.user_lst)
-                                        self.logger.info('Call started, participants: {}'.format(
+                                        self.logger.info('Call started, participants: {}.'.format(
                                             ', '.join(call.user_lst)))
 
                                     self.user_dct[caller].call = call
@@ -378,6 +378,8 @@ class PypeServer(object):
             user.switch_status()
             self.report_user_update(
                 subtype='status', name=user.name)
+
+        self.logger.info('{} left a call.'.format(user.name))
 
     def get_multicast_addr(self):
         """Retreives a vacant multicast IP address.
