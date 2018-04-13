@@ -8,27 +8,27 @@ import threading
 
 def rate_limit(rate):
     """Creates rate limit decorator.
-
+    
     Args:
         rate (int): Upper bound of sending rate.
-
-    No Longer Returned:
+    
+    Returns:
         function: Rate limit decorator.
     """
 
     def decorator(f):
         """Decorator which limits rate of transmission functions.
-
+        
         Args:
             f (function): Function to limit its rate.
-
+        
         Returns:
             function: Wrapper function to switch the original. 
         """
 
         def wrapper(*args, **kwargs):
             """Wrapper function for rate limit decorator.
-
+            
             Args:
                 *args: Positional arguments supplied in tuple form.
                 **kwargs: Keyword arguments supplied in dictionary form.
@@ -46,29 +46,29 @@ def rate_limit(rate):
     return decorator
 
 
-def new_thread(name):
+def new_thread(name=None):
     """Creates new thread decorator.
-
+    
     Args:
         name (str): Thread name.
-
+    
     Returns:
         function: New thread decorator.
     """
 
     def decorator(f):
         """Decorator which calls function on a new thread.
-
+        
         Args:
             f (function): Function to run on a new thread.
-
+        
         Returns:
             function: Wrapper function to switch the original.
         """
 
         def wrapper(*args, **kwargs):
             """Wrapper function for new thread decorator.
-
+            
             Args:
                 *args: Positional arguments supplied in tuple form.
                 **kwargs: Keyword arguments supplied in dictionary form.
