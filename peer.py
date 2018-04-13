@@ -14,6 +14,7 @@ import pyaudio
 import cv2
 import base64
 import random
+from collections import deque
 
 import ntplib
 import matplotlib.font_manager as fm
@@ -336,8 +337,14 @@ class PypePeer(object):
 
                         # Content packets
                         elif data['subtype'] == 'content':
+                            # Receiving audio packet
+                            if data['medium'] == 'audio':
+                                if data['src'] != root.username:
+                                    self.session.audio_deque_dct[
+                                        data['src']].append(data)
+
                             # Receiving chat message
-                            if data['medium'] == 'chat':
+                            elif data['medium'] == 'chat':
                                 if data['src'] == root.username:
                                     data['src'] = 'You'
                                 root.session_layout.chat_layout.add_msg(**data)
@@ -417,6 +424,7 @@ class PypePeer(object):
         root.switch_to_session_layout(**kwargs)
 
         # Adding session connections to connection list
+        self.conn_lst.append(self.session.content_conn_dct['audio'])
         self.conn_lst.append(self.session.content_conn_dct['chat'])
         for conn in self.session.control_conn_dct.values():
             self.conn_lst.append(conn)
@@ -429,7 +437,8 @@ class PypePeer(object):
             Logger.info('Sending RSA public key.')
 
         # Starting audio and video packets receiving threads
-        self.session.audio_recv_loop()
+        for user in self.session.user_lst:
+            self.session.audio_recv_loop(user)
         self.session.video_recv_loop()
 
         # Starting audio and video packet sending threads
@@ -455,6 +464,7 @@ class PypePeer(object):
         peer.plot_stats_flag = True
 
         # Removing active conns from connection list
+        self.conn_lst.remove(self.session.content_conn_dct['audio'])
         self.conn_lst.remove(self.session.content_conn_dct['chat'])
         for conn in self.session.control_conn_dct.values():
             self.conn_lst.remove(conn)
@@ -498,9 +508,10 @@ class Session(object):
         aes_key (str): Symmetric key for AES encryption and decryption.
         AES_KEY_SIZE (int): Size of AES symmetric key.
         AUDIO_CHUNK_SIZE (int): The number of audio samples in a single read.
+        audio_deque_dct (dict): Dictionary of thread-safe queues for transfering audio packets.
         audio_input_stream (pyaudio.Stream): Audio input stream object.
         audio_interface (pyaudio.PyAudio): Interface for accessing audio methods.
-        audio_output_stream (pyaudio.Stream): Audio output stream object.
+        audio_output_stream_dct (dict): Dictionary containing audio streams for each user in call.
         AUDIO_SAMPLING_RATE (int): Audio sampling rate.
         audio_stat_dct (dict): Audio statistics dictionary.
         clr (list): Username + optimal sending rate of CLR (current limiting receiver).
@@ -532,6 +543,7 @@ class Session(object):
 
     Deleted Attributes:
         plot_stats_flag (bool): Description
+        audio_output_stream (pyaudio.Stream): Audio output stream object.
     """
 
     MULTICAST_CONTROL_PORT = 8192
@@ -623,18 +635,21 @@ class Session(object):
         self.audio_stat_dct = {user: Tracker() for user in self.user_lst}
         self.video_stat_dct = {user: Tracker() for user in self.user_lst}
 
-        # Initializing audio stream
+        # Initializing audio streams
         self.audio_interface = pyaudio.PyAudio()
         self.audio_input_stream = self.audio_interface.open(
             format=pyaudio.paInt16,
             channels=2,
             rate=Session.AUDIO_SAMPLING_RATE,
             input=True)
-        self.audio_output_stream = self.audio_interface.open(
+        self.audio_output_stream_dct = {user: self.audio_interface.open(
             format=pyaudio.paInt16,
             channels=2,
             rate=Session.AUDIO_SAMPLING_RATE,
-            output=True)
+            output=True) for user in self.user_lst}
+
+        # Initializing audio deques
+        self.audio_deque_dct = {user: deque() for user in self.user_lst}
 
         # Creating webcam stream
         self.webcam_stream = WebcamStream()
@@ -657,15 +672,24 @@ class Session(object):
 
         # User join
         if kwargs['subtype'] == 'user_join':
-            self.user_lst.append(kwargs['name'])
-            self.user_addr_dct[kwargs['name']] = kwargs['addr']
-            self.audio_stat_dct[kwargs['name']] = Tracker()
-            self.video_stat_dct[kwargs['name']] = Tracker()
+            user = kwargs['name']
+            self.user_lst.append(user)
+            self.user_addr_dct[user] = kwargs['addr']
+            self.audio_stat_dct[user] = Tracker()
+            self.video_stat_dct[user] = Tracker()
+            self.audio_deque_dct[user] = deque()
+            self.audio_output_stream_dct[user] = self.audio_interface.open(
+                format=pyaudio.paInt16,
+                channels=2,
+                rate=Session.AUDIO_SAMPLING_RATE,
+                output=True)
+            self.audio_recv_loop(user)
 
         # User leave
         elif kwargs['subtype'] == 'user_leave':
-            self.user_lst.remove(kwargs['name'])
-            del self.user_addr_dct[kwargs['name']]
+            user = kwargs['name']
+            self.user_lst.remove(user)
+            del self.user_addr_dct[user]
             if 'new_master' in kwargs:
                 prev_master = self.master
                 self.master = kwargs['new_master']
@@ -683,8 +707,12 @@ class Session(object):
                     peer = App.get_running_app().peer
                     peer.conn_lst.append(self.crypto_conn)
 
-            del self.audio_stat_dct[kwargs['name']]
-            del self.video_stat_dct[kwargs['name']]
+            del self.audio_stat_dct[user]
+            del self.video_stat_dct[user]
+            self.audio_output_stream_dct[user].stop_stream()
+            self.audio_output_stream_dct[user].close()
+            del self.audio_deque_dct[user]
+            del self.audio_output_stream_dct[user]
 
     def send_rsa_public_key(self):
         """Sends RSA public key to call master for receiving
@@ -850,33 +878,35 @@ class Session(object):
             if self.send_flag_dct['audio']:
                 self.send_audio()
 
-    @new_thread('audio_recv_thread')
-    def audio_recv_loop(self):
-        """Receives and plays audio in parallel.
+    @new_thread()
+    def audio_recv_loop(self, user):
+        """Receives and plays audio of a certain user in parallel.
+
+        Args:
+            user (str): User whose audio is to be processed.
         """
 
         while self.keep_sending_flag:
-            # Receiving and parsing new audio packets
+            # Checking deque for audio packets
             try:
-                raw_data, addr = self.content_conn_dct['audio'].recvfrom(
-                    PypePeer.MAX_RECV_SIZE)
-            except socket.timeout:
-                continue
-            peer = App.get_running_app().peer
-            data_lst = peer.get_jsons(raw_data)
+                if self.audio_deque_dct[user]:
+                    data = self.audio_deque_dct[user].pop()
 
-            # Decoding and playing audio packets
-            username = App.get_running_app().root_sm.current_screen.username
-            for data in data_lst:
-                if data['src'] in self.audio_stat_dct:
-                    if data['src'] != username and self.audio_stat_dct[data['src']].check_packet_integrity(**data):
-                        audio_chunk = base64.b64decode(data['chunk'])
-                        self.audio_output_stream.write(audio_chunk)
+                    # Decoding and playing audio packet
+                    username = App.get_running_app().root_sm.current_screen.username
+                    if user in self.audio_stat_dct:
+                        if user != username and self.audio_stat_dct[user].check_packet_integrity(**data):
+                            audio_chunk = base64.b64decode(data['chunk'])
+                            self.audio_output_stream_dct[
+                                user].write(audio_chunk)
 
-                    # Updating audio statistics
-                    if peer.session and data['src'] in peer.session.user_lst:
-                        tracker = peer.session.audio_stat_dct[data['src']]
-                        tracker.update(**data)
+                        # Updating audio statistics
+                        peer = App.get_running_app().peer
+                        if peer.session and user in self.user_lst:
+                            tracker = self.audio_stat_dct[user]
+                            tracker.update(**data)
+            except KeyError:
+                break
 
     def send_audio(self):
         """Sends encrypted audio packet to multicast group.
@@ -1042,6 +1072,9 @@ class Session(object):
 
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
+
+        Returns:
+            TYPE: Description
         """
 
         clr_user, clr_rate = self.clr
@@ -1143,8 +1176,7 @@ class Session(object):
 
         # Waiting for active threads to return
         for thread in threading.enumerate():
-            if thread.name in ['audio_send_thread', 'audio_recv_thread',
-                               'video_send_thread', 'video_recv_thread']:
+            if thread.name in ['audio_send_thread', 'video_send_thread', 'video_recv_thread']:
                 thread.join()
 
         # Stopping self camera capture
@@ -1164,8 +1196,9 @@ class Session(object):
         # Closing audio streams
         self.audio_input_stream.stop_stream()
         self.audio_input_stream.close()
-        self.audio_output_stream.stop_stream()
-        self.audio_output_stream.close()
+        for audio_output_stream in self.audio_output_stream_dct.values():
+            audio_output_stream.stop_stream()
+            audio_output_stream.close()
         self.audio_interface.terminate()
 
         # Terminating webcam stream
