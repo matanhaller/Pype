@@ -295,10 +295,12 @@ class PypePeer(object):
                                 }))
                             root.add_footer_widget(mode=mode, **data)
 
+                    # Call request
                     elif data['subtype'] == 'participate':
                         self.call_block = True
                         root.add_footer_widget(mode='call', **data)
 
+                    # Self call response
                     elif data['subtype'] == 'response':
                         if data['status'] == 'reject':
                             self.call_block = False
@@ -310,6 +312,7 @@ class PypePeer(object):
                             'status': data['status']
                         }))
 
+                    # Callee response
                     elif data['subtype'] == 'callee_response':
                         if data['status'] == 'accept':
                             if hasattr(root, 'session_layout'):
