@@ -38,7 +38,7 @@ from webcamstream import WebcamStream
 class PypePeer(object):
 
     """App peer class.
-    
+
     Attributes:
         app_thread_running_flag (bool): Flag indicating whether the app's Kivy thread is running.
         call_block (bool): Blocks user from calling other users when true.
@@ -80,7 +80,7 @@ class PypePeer(object):
 
     def get_gui_evt_port(self):
         """Get random allocated port number of GUI event listener.
-        
+
         Returns:
             int: The port number.
         """
@@ -164,10 +164,10 @@ class PypePeer(object):
 
     def get_jsons(self, raw_data):
         """Retreives JSON objects string and parses it.
-        
+
         Args:
             raw_data (str): Data to parse.
-        
+
         Returns:
             list: Parsed JSON objects list.
         """
@@ -204,7 +204,7 @@ class PypePeer(object):
 
     def handle_readables(self, read_lst):
         """Handles all readable connections in mainloop.
-        
+
         Args:
             read_lst (list): Readable connections list.
         """
@@ -342,9 +342,9 @@ class PypePeer(object):
                         elif data['subtype'] == 'content':
                             # Receiving chat message
                             if data['medium'] == 'chat':
-                                if data['src'] == root.username:
-                                    data['src'] = 'You'
-                                root.session_layout.chat_layout.add_msg(**data)
+                                if data['src'] != root.username:
+                                    root.session_layout.chat_layout.add_msg(
+                                        **data)
 
                         # Control packets
                         elif data['subtype'] == 'control':
@@ -394,7 +394,7 @@ class PypePeer(object):
 
     def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
-        
+
         Args:
             write_lst (list): Writable connections list.
         """
@@ -406,7 +406,7 @@ class PypePeer(object):
 
     def start_call(self, **kwargs):
         """Procedures to be done when starting call.
-        
+
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -435,7 +435,7 @@ class PypePeer(object):
         # Starting audio and video packets receiving threads
         self.session.audio_recv_loop()
         for user in self.session.user_lst:
-            self.session.handle_audio_packets(user)
+            self.session.play_audio_packets(user)
         self.session.video_recv_loop()
 
         # Starting audio and video packet sending threads
@@ -497,7 +497,7 @@ class PypePeer(object):
 class Session(object):
 
     """Class used for management of current call.
-    
+
     Attributes:
         aes_iv (str): Initialization vector for AES encryption and decryption.
         AES_IV_SIZE (int): Size of AES initialization vector.
@@ -536,7 +536,7 @@ class Session(object):
          after JPEG compression.
         video_stat_dct (dict): Video statistics dictionary.
         webcam_stream (WebcamStream): Live webcam stream object.
-    
+
     Deleted Attributes:
         plot_stats_flag (bool): Description
         audio_output_stream (pyaudio.Stream): Audio output stream object.
@@ -557,7 +557,7 @@ class Session(object):
 
     def __init__(self, **kwargs):
         """Constructor method.
-        
+
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -661,7 +661,7 @@ class Session(object):
 
     def update(self, **kwargs):
         """Updates session when changes in call occur.
-        
+
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -679,7 +679,7 @@ class Session(object):
                 channels=2,
                 rate=Session.AUDIO_SAMPLING_RATE,
                 output=True)
-            self.handle_audio_packets(user)
+            self.play_audio_packets(user)
 
         # User leave
         elif kwargs['subtype'] == 'user_leave':
@@ -730,7 +730,7 @@ class Session(object):
     def send_crypto_info(self, public_key, conn):
         """Sends cryptographic info (AES symmetric key and initialization vector
             and session nonce) to a new user in call who isn't the call master.
-        
+
         Args:
             public_key (str): RSA public key received from user.
             conn (socket.socket): TCP connection for sending the info.
@@ -754,7 +754,7 @@ class Session(object):
 
     def set_crypto_info(self, **kwargs):
         """Decrypts and sets cryptographic info received from call master.
-        
+
         Args:
             **kwargs: Keyword arguments supplied in dictioanry form.
         """
@@ -778,10 +778,10 @@ class Session(object):
 
     def encrypt_msg(self, msg):
         """Encrypts message with AES symmetric encryption.
-        
+
         Args:
             msg (dict): JSON-formatted message.
-        
+
         Returns:
             dict: The encrypted message wrapped in another JSON.
         """
@@ -805,10 +805,10 @@ class Session(object):
 
     def decrypt_msg(self, msg):
         """Decrypts message with AES symmetric encryption.
-        
+
         Args:
             msg (dict): Encrypted data wrapped in JSON.
-        
+
         Returns:
             dict: Decrypted JSON-formatted message.
         """
@@ -834,11 +834,11 @@ class Session(object):
 
     def create_multicast_conn(self, addr, port):
         """Creates UDP socket and adds it to multicast group.
-        
+
         Args:
             addr (str): IP address of multicast group.
             port (int): Port number of multicast group.
-        
+
         Returns:
             socket.socket: UDP socket connected to multicast group.
         """
@@ -889,16 +889,21 @@ class Session(object):
             peer = App.get_running_app().peer
             data_lst = peer.get_jsons(raw_data)
 
-            # Tranferring audio packets to parallel threads for processing
+            # Tranferring audio packets to parallel threads for playing
             root = App.get_running_app().root_sm.current_screen
             for data in data_lst:
                 if data['src'] != root.username:
                     self.audio_deque_dct[data['src']].append(data)
 
+                    # Updating audio statistics
+                    if peer.session and data['src'] in self.user_lst:
+                        tracker = self.audio_stat_dct[data['src']]
+                        tracker.update(**data)
+
     @new_thread()
-    def handle_audio_packets(self, user):
-        """Processes and plays audio of a certain user in parallel.
-        
+    def play_audio_packets(self, user):
+        """Plays audio of a certain user in parallel.
+
         Args:
             user (str): User whose audio is to be processed.
         """
@@ -916,12 +921,6 @@ class Session(object):
                             audio_chunk = base64.b64decode(data['chunk'])
                             self.audio_output_stream_dct[
                                 user].write(audio_chunk)
-
-                        # Updating audio statistics
-                        peer = App.get_running_app().peer
-                        if peer.session and user in self.user_lst:
-                            tracker = self.audio_stat_dct[user]
-                            tracker.update(**data)
             except KeyError:
                 break
 
@@ -1036,7 +1035,7 @@ class Session(object):
 
     def send_chat(self, **kwargs):
         """Sends chat message to call multicast chat group.
-        
+
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -1084,14 +1083,11 @@ class Session(object):
              lower and current CLR, make the user the new CLR.
             2. IF the user is CLR, update the rate according to him.
             3. Else, don't change a thing.
-        
+
             The rate is updated with 40% weight to avoid abruptness in rate change.
-        
+
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
-        
-        Returns:
-            TYPE: Description
         """
 
         clr_user, clr_rate = self.clr
@@ -1127,7 +1123,7 @@ class Session(object):
 
     def plot_stats(self, user):
         """Plots audio and video statistics of user.
-        
+
         Args:
             user (str): User whose statistics are to be plotted.
         """
