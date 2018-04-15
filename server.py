@@ -355,6 +355,8 @@ class PypeServer(object):
         del self.call_dct[prev_master]
         self.call_dct[call.master] = call
 
+        self.logger.info('{} left a call.'.format(user.name))
+
         # Removing call if user number reduced to 1
         if len(call.user_lst) == 1:
             # Returning allocated addresses to list
@@ -369,6 +371,8 @@ class PypeServer(object):
                     self.user_dct[participant].leave_call()
                     self.report_user_update(
                         subtype='status', name=participant)
+
+            self.logger.info('A call ended.')
         else:
             self.report_call_update(
                 subtype='user_leave', master=prev_master,
@@ -378,8 +382,6 @@ class PypeServer(object):
             user.switch_status()
             self.report_user_update(
                 subtype='status', name=user.name)
-
-        self.logger.info('{} left a call.'.format(user.name))
 
     def get_multicast_addr(self):
         """Retreives a vacant multicast IP address.
