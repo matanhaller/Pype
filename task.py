@@ -41,7 +41,7 @@ class Task(object):
             self.msg['timestamp'] = time.time()
 
         # Stringifying JSON message
-        str_msg = json.dumps(self.msg)
+        str_msg = json.dumps(self.msg, separators=(',', ':'))
 
         # For TCP sockets
         if self.conn.type == socket.SOCK_STREAM:
