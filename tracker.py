@@ -8,6 +8,8 @@ import base64
 
 from numpy import exp
 
+from configparser import get_option
+
 
 class Tracker(object):
 
@@ -290,6 +292,6 @@ class Tracker(object):
         """
 
         try:
-            return int(1.75 / self.stat_dct['latency'])
+            return int(get_option('coefficient') / self.stat_dct['latency'])
         except ZeroDivisionError:
             return None
