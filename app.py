@@ -781,12 +781,16 @@ class ChatLayout(BoxLayout):
             msg.decode('ascii')
             self.ids.chat_input.text = ''
             app = App.get_running_app()
-            app.send_gui_evt({
+            chat_msg = {
                 'type': 'session',
                 'subtype': 'self_chat',
                 'src': app.root_sm.current_screen.username,
                 'msg': msg
-            })
+            }
+            app.send_gui_evt(chat_msg)
+            chat_msg['src'] = 'You'
+            chat_msg['timestamp'] = time.time()
+            self.add_msg(**chat_msg)
         except UnicodeEncodeError:
             main_screen = App.get_running_app().root_sm.current_screen
             main_screen.add_footer_widget(mode='invalid_text')
