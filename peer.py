@@ -1133,6 +1133,7 @@ class Session(object):
         video_tracker = self.video_stat_dct[user]
 
         # Setting plot title
+        plt.gcf().canvas.set_window_title('Call statistics plot')
         plt.suptitle('Call statistics: ' + user,
                      fontsize=24)
 
