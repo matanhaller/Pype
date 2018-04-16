@@ -5,7 +5,9 @@
 import ConfigParser
 import errno
 import socket
+import datetime
 import os
+import win32api
 import select
 import json
 import sys
@@ -129,28 +131,29 @@ class PypePeer(object):
         """Syncing the computer's clock with an external server via NTP protocol.
         """
 
-        while True:
-            try:
-                # Connecting to NTP server
-                ntp_client = ntplib.NTPClient()
+        try:
+            # Connecting to NTP server
+            ntp_client = ntplib.NTPClient()
 
-                # Waiting for response from server
-                ntp_response = ntp_client.request(PypePeer.NTP_SERVER_ADDR)
-                time_obj = time.localtime(ntp_response.tx_time)
+            # Waiting for response from server
+            ntp_response = ntp_client.request(PypePeer.NTP_SERVER_ADDR)
 
-                # Updating local time
-                os.system('date ' + time.strftime('%m-%d-%Y', time_obj))
-                os.system('time ' + time.strftime('%H:%M:%S', time_obj))
-                break
-            except Exception as e:
-                Logger.info('Time sync error: ' + str(e))
-                continue
+            # Updating system time
+            time_obj = datetime.datetime.utcfromtimestamp(
+                ntp_response.tx_time)
+            win32api.SetSystemTime(time_obj.year, time_obj.month,
+                                   (time_obj.weekday() + 1) % 7,
+                                   time_obj.day, time_obj.hour,
+                                   time_obj.minute, time_obj.second,
+                                   time_obj.microsecond / 1000)
 
-        Logger.info('Synced clock with network time.')
+            Logger.info('Synced clock with network time.')
+        except Exception as e:
+            Logger.info('Time sync error: ' + str(e))
 
     @new_thread('server_connect_thread')
     def server_connect(self):
-        """Tries connecting to server as long as it isn't connected
+        """Tries connecting to server as long as not connected to it.
         """
 
         while self.app_thread_running_flag:
