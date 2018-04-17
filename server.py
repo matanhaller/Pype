@@ -191,7 +191,7 @@ class PypeServer(object):
                                             callee.join_call(call)
                                             self.report_call_update(
                                                 subtype='user_join', master=call.master,
-                                                name=callee.name, addr=self.conn_dct[callee.conn][0])
+                                                name=callee.name, addr=self.conn_dct[callee.conn])
                                             self.logger.info(
                                                 '{} joined a call.'.format(callee.name))
                                         else:
@@ -221,8 +221,8 @@ class PypeServer(object):
                                     self.user_dct[caller].call = call
                                     response_msg['master'] = call.master
                                     response_msg['user_lst'] = call.user_lst
-                                    response_msg['peer_addrs'] = {user: self.conn_dct[
-                                        self.user_dct[user].conn][0] for user in call.user_lst}
+                                    response_msg['unicast_addrs'] = {user: self.conn_dct[
+                                        self.user_dct[user].conn] for user in call.user_lst}
 
                                     # Adding addresses to response message
                                     response_msg['addrs'] = call.addr_dct
