@@ -146,7 +146,7 @@ class PypePeer(object):
                                    time_obj.day, time_obj.hour,
                                    time_obj.minute, time_obj.second,
                                    time_obj.microsecond / 1000)
-
+            print time_obj
             Logger.info('Synced clock with network time.')
         except Exception as e:
             Logger.info('Time sync error: ' + str(e))
@@ -427,8 +427,8 @@ class PypePeer(object):
         self.conn_lst.append(self.session.content_conn_dct['chat'])
         for conn in self.session.control_conn_dct.values():
             self.conn_lst.append(conn)
-        self.conn_lst.append(self.session.unicast_control_conn)
         self.conn_lst.append(self.session.crypto_conn)
+        self.conn_lst.append(self.session.unicast_control_conn)
 
         # Sending RSA public key if user isn't call master
         if root.username != kwargs['master']:
@@ -532,21 +532,17 @@ class Session(object):
         session_nonce (str): Nonce generated at the beginning of call and keeps data integrity.
         SESSION_NONCE_SIZE (int): Size of session nonce.
         task_lst (list): List of tasks to send (the same one that PypePeer has).
-        unicast_control_conn (socket.socket): Unicast connection used for control transmission.
-        user_addr_dct (dict): Dictioanry mapping each user to its IP address.
+        unicast_addr_dct (dict): Dictionary of unicast addresses used for sending feedback.
+        unicast_control_conn (socket.socket): Unicast UDP connection for sending feedback.
         user_lst (list): List of users in call.
         VIDEO_COMPRESSION_QUALITY (int): Value indicating the quality of the resultant frame
          after JPEG compression.
         video_stat_dct (dict): Video statistics dictionary.
         webcam_stream (WebcamStream): Live webcam stream object.
-
-    Deleted Attributes:
-        plot_stats_flag (bool): Description
-        audio_output_stream (pyaudio.Stream): Audio output stream object.
     """
 
-    MULTICAST_CONTROL_PORT = 8192
-    MULTICAST_CONTENT_PORT = 8193
+    MULTICAST_CONTROL_PORT = 50000
+    MULTICAST_CONTENT_PORT = 50001
     MULTICAST_CONN_TIMEOUT = 1
     INTIAL_SEQ_RANGE = 65536
     VIDEO_COMPRESSION_QUALITY = 50
@@ -569,7 +565,7 @@ class Session(object):
 
         self.master = kwargs['master']
         self.user_lst = kwargs['user_lst']
-        self.user_addr_dct = kwargs['peer_addrs']
+        self.unicast_addr_dct = kwargs['unicast_addrs']
 
         # Creating connection for cryptographic info sharing
         self.crypto_conn = socket.socket(
@@ -596,8 +592,8 @@ class Session(object):
             self.rsa_keypair = RSA.generate(Session.RSA_KEYS_SIZE)
             Logger.info('RSA keypair generation complete.')
 
-            self.crypto_conn.connect(
-                (self.user_addr_dct[self.master], Session.MULTICAST_CONTROL_PORT))
+            self.crypto_conn.connect((self.unicast_addr_dct[self.master][
+                                     0], Session.MULTICAST_CONTROL_PORT))
 
         # Storing multicast addresses allocated by server
         self.multicast_addr_dct = kwargs['addrs']
@@ -620,7 +616,8 @@ class Session(object):
             socket.AF_INET, socket.SOCK_DGRAM)
         self.unicast_control_conn.setsockopt(
             socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.unicast_control_conn.bind(('', Session.MULTICAST_CONTROL_PORT))
+        self.unicast_control_conn.bind(
+            ('', self.unicast_addr_dct[username][1]))
 
         # Initializing audio, video and feedback sequence numbers with random
         # values
@@ -673,7 +670,7 @@ class Session(object):
         if kwargs['subtype'] == 'user_join':
             user = kwargs['name']
             self.user_lst.append(user)
-            self.user_addr_dct[user] = kwargs['addr']
+            self.unicast_addr_dct[user] = kwargs['addr']
             self.audio_stat_dct[user] = Tracker()
             self.video_stat_dct[user] = Tracker()
             self.audio_deque_dct[user] = deque()
@@ -688,7 +685,6 @@ class Session(object):
         elif kwargs['subtype'] == 'user_leave':
             user = kwargs['name']
             self.user_lst.remove(user)
-            del self.user_addr_dct[user]
             if 'new_master' in kwargs:
                 prev_master = self.master
                 self.master = kwargs['new_master']
@@ -706,6 +702,7 @@ class Session(object):
                     peer = App.get_running_app().peer
                     peer.conn_lst.append(self.crypto_conn)
 
+            del self.unicast_addr_dct[user]
             del self.audio_stat_dct[user]
             del self.video_stat_dct[user]
             self.audio_output_stream_dct[user].stop_stream()
@@ -1058,7 +1055,7 @@ class Session(object):
         root = App.get_running_app().root_sm.current_screen
         username = root.username
 
-        for user in self.user_lst:
+        for user in self.unicast_addr_dct:
             if user != username:
                 optimal_rate = self.video_stat_dct[user].optimal_sending_rate()
                 if optimal_rate:
@@ -1076,8 +1073,8 @@ class Session(object):
                     # Incrementing feedback packet sequence number
                     self.seq_dct['feedback'] += 1
 
-                    self.task_lst.append(Task(self.unicast_control_conn, feedback_msg, dst=(
-                        self.user_addr_dct[self.master], Session.MULTICAST_CONTROL_PORT)))
+                    self.task_lst.append(Task(self.unicast_control_conn, feedback_msg, dst=tuple(
+                        self.unicast_addr_dct[user])))
 
     def set_optimal_rate(self, **kwargs):
         """
