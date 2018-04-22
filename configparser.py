@@ -6,6 +6,7 @@ Attributes:
 """
 
 # Imports
+import json
 from ConfigParser import ConfigParser
 
 # Retreiving configuration options
@@ -21,7 +22,7 @@ def get_option(option):
         option (str): Name of option to retreive from configuration file.
 
     Returns:
-        str/int/float//bool/list: The value of the requested option.
+        str/int/float//bool: The value of the requested option.
     """
 
     global config
@@ -34,7 +35,4 @@ def get_option(option):
             try:
                 return config.getboolean('Header', option)
             except ValueError:
-                option = config.get('Header', option)
-                if ',' in option:
-                    return option.split(',')
-                return option
+                return config.get('Header', option)
