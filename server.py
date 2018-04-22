@@ -88,10 +88,7 @@ class PypeServer(object):
                 self.conn_dct[new_conn] = addr
                 self.logger.info('{} connected.'.format(addr))
             else:
-                if conn.type == socket.SOCK_STREAM:
-                    raw_data = conn.recv(PypeServer.MAX_RECV_SIZE)
-                else:
-                    raw_data, addr = conn.recvfrom(PypeServer.MAX_RECV_SIZE)
+                raw_data = conn.recv(PypeServer.MAX_RECV_SIZE)
 
                 # Closing socket if disconnected
                 if not raw_data:
@@ -200,7 +197,7 @@ class PypeServer(object):
                                                 caller].join_call(call)
                                             self.report_call_update(
                                                 subtype='user_join', master=call.master,
-                                                name=caller, addr=self.conn_dct[self.user_dct[caller].conn][0])
+                                                name=caller, addr=self.conn_dct[self.user_dct[caller].conn])
                                             self.logger.info(
                                                 '{} joined a call.'.format(self.user_dct[caller].name))
                                     else:
