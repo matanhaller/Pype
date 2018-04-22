@@ -226,10 +226,7 @@ class PypePeer(object):
                     self.conn_lst.append(new_crypto_conn)
                     continue
                 else:
-                    if conn.type == socket.SOCK_STREAM:
-                        raw_data = conn.recv(PypePeer.MAX_RECV_SIZE)
-                    else:
-                        raw_data, addr = conn.recvfrom(PypePeer.MAX_RECV_SIZE)
+                    raw_data = conn.recv(PypePeer.MAX_RECV_SIZE)
 
                 # Closing connection if necessary
                 if not raw_data:
@@ -430,11 +427,6 @@ class PypePeer(object):
         self.conn_lst.append(self.session.crypto_conn)
         self.conn_lst.append(self.session.unicast_control_conn)
 
-        # Sending RSA public key if user isn't call master
-        if root.username != kwargs['master']:
-            self.session.send_rsa_public_key()
-            Logger.info('Sending RSA public key.')
-
         # Starting audio and video packets receiving threads
         self.session.audio_recv_loop()
         for user in self.session.user_lst:
@@ -587,13 +579,8 @@ class Session(object):
             self.crypto_conn.listen(1)
         else:
             # If user isn't the call master, create RSA keypair for receiving
-            # cryptographic info
-            Logger.info('Creating RSA keypair.')
-            self.rsa_keypair = RSA.generate(Session.RSA_KEYS_SIZE)
-            Logger.info('RSA keypair generation complete.')
-
-            self.crypto_conn.connect((self.unicast_addr_dct[self.master][
-                                     0], Session.MULTICAST_CONTROL_PORT))
+            # cryptographic info and send it
+            self.send_rsa_public_key()
 
         # Storing multicast addresses allocated by server
         self.multicast_addr_dct = kwargs['addrs']
@@ -602,6 +589,7 @@ class Session(object):
         self.content_conn_dct = {medium: self.create_multicast_conn(self.multicast_addr_dct[medium],
                                                                     Session.MULTICAST_CONTENT_PORT)
                                  for medium in self.multicast_addr_dct}
+
         for medium in ['audio', 'video']:
             self.content_conn_dct[medium].settimeout(
                 Session.MULTICAST_CONN_TIMEOUT)
@@ -632,17 +620,7 @@ class Session(object):
         self.video_stat_dct = {user: Tracker() for user in self.user_lst}
 
         # Initializing audio streams
-        self.audio_interface = pyaudio.PyAudio()
-        self.audio_input_stream = self.audio_interface.open(
-            format=pyaudio.paInt16,
-            channels=2,
-            rate=Session.AUDIO_SAMPLING_RATE,
-            input=True)
-        self.audio_output_stream_dct = {user: self.audio_interface.open(
-            format=pyaudio.paInt16,
-            channels=2,
-            rate=Session.AUDIO_SAMPLING_RATE,
-            output=True) for user in self.user_lst}
+        self.init_audio_streams()
 
         # Initializing audio deques
         self.audio_deque_dct = {user: deque() for user in self.user_lst}
@@ -710,10 +688,20 @@ class Session(object):
             del self.audio_deque_dct[user]
             del self.audio_output_stream_dct[user]
 
+    @new_thread('rsa_thread')
     def send_rsa_public_key(self):
-        """Sends RSA public key to call master for receiving
+        """Generates and sends RSA public key to call master for receiving
         cryptographic info.
         """
+
+        # Connecting to call master
+        self.crypto_conn.connect((self.unicast_addr_dct[self.master][
+            0], Session.MULTICAST_CONTROL_PORT))
+
+        # Generating RSA keypair
+        Logger.info('Creating RSA keypair.')
+        self.rsa_keypair = RSA.generate(Session.RSA_KEYS_SIZE)
+        Logger.info('RSA keypair generation complete.')
 
         # Retreiving PEM-encoded RSA public key
         rsa_public_key = self.rsa_keypair.publickey().exportKey()
@@ -726,6 +714,7 @@ class Session(object):
             'key': rsa_public_key
         }
         self.task_lst.append(Task(self.crypto_conn, crypto_msg))
+        Logger.info('Sending RSA public key.')
 
     def send_crypto_info(self, public_key, conn):
         """Sends cryptographic info (AES symmetric key and initialization vector
@@ -860,13 +849,33 @@ class Session(object):
 
         return conn
 
+    @new_thread('audio_init_thread')
+    def init_audio_streams(self):
+        """Initializes audio stream objects in a separate thread.
+        """
+
+        self.audio_interface = pyaudio.PyAudio()
+        self.audio_input_stream = self.audio_interface.open(
+            format=pyaudio.paInt16,
+            channels=2,
+            rate=Session.AUDIO_SAMPLING_RATE,
+            input=True)
+        self.audio_output_stream_dct = {user: self.audio_interface.open(
+            format=pyaudio.paInt16,
+            channels=2,
+            rate=Session.AUDIO_SAMPLING_RATE,
+            output=True) for user in self.user_lst}
+
     @new_thread('audio_send_thread')
     def audio_send_loop(self):
         """Loop for sending audio packets in parallel.
         """
 
-        # Waiting for cryptographic info exchange to complete
-        while not hasattr(self, 'aes_key'):
+        # Waiting for cryptographic info exchange to complete and audio streams
+        # to initialize
+        while not hasattr(self, 'aes_key') \
+                or not hasattr(self, 'session_nonce') \
+                or not hasattr(self, 'audio_output_stream_dct'):
             pass
 
         # Sending audio in a loop
@@ -1141,7 +1150,8 @@ class Session(object):
         if get_option('stats_to_plot') == 'all':
             stats_to_plot = audio_tracker.stat_dct.keys()
         else:
-            stats_to_plot = get_option('stats_to_plot')
+            stats_to_plot = filter(lambda stat: stat !=
+                                   '', get_option('stats_to_plot').split(','))
 
         # Ploting statistics
         rows, cols = len(stats_to_plot), 1
