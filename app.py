@@ -43,7 +43,7 @@ class ErrorLabel(Label):
 class EntryScreen(Screen):
 
     """Entry screen class (see .kv file for structure).
-
+    
     Attributes:
         bottom_lbl (Label): Bottom label to be added
          (when username is invalid or taken).
@@ -86,7 +86,7 @@ class EntryScreen(Screen):
     @mainthread
     def add_bottom_lbl(self, msg):
         """Adds bottom label to entry screen.
-
+        
         Args:
             msg (str): The message to be shown in the label.
         """
@@ -102,7 +102,7 @@ class EntryScreen(Screen):
 class MainScreen(Screen):
 
     """Main screen class (see .kv file for structure).
-
+    
     Attributes:
         call_layout (CallLayout): Layout of all active calls.
         footer_widget (Widget): Widget that's added to the bottom of the screen
@@ -116,7 +116,7 @@ class MainScreen(Screen):
 
     def __init__(self, **kwargs):
         """Constructor method
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -131,7 +131,7 @@ class MainScreen(Screen):
     @mainthread
     def add_footer_widget(self, **kwargs):
         """Adds footer widget to main screen.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -186,7 +186,7 @@ class MainScreen(Screen):
     @mainthread
     def switch_to_session_layout(self, **kwargs):
         """Removes call layout and shows session layout during active call.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -204,7 +204,7 @@ class MainScreen(Screen):
     @mainthread
     def switch_to_call_layout(self, **kwargs):
         """Removes session layout and shows call layout after call end.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -219,7 +219,7 @@ class MainScreen(Screen):
 class UserSlot(BoxLayout):
 
     """Slot representing an online user (see .kv file for structure).
-
+    
     Attributes:
         color (str): Slot color (for design purposes only.)
         status (str): Whether the user is in call (available/in call).
@@ -228,7 +228,7 @@ class UserSlot(BoxLayout):
 
     def __init__(self, **kwargs):
         """Constructor method.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -266,7 +266,7 @@ class UserSlot(BoxLayout):
 class CallSlot(BoxLayout):
 
     """Slot representing an active call (see .kv file for structure).
-
+    
     Attributes:
         color (str): Slot color (for design purposes only).
         master (str): Username of call master.
@@ -275,7 +275,7 @@ class CallSlot(BoxLayout):
 
     def __init__(self, **kwargs):
         """Constructor method.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -288,7 +288,7 @@ class CallSlot(BoxLayout):
 
     def update(self, **kwargs):
         """Updates call slot on user join/leave.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictioanry form.
         """
@@ -320,14 +320,14 @@ class CallSlot(BoxLayout):
 class UserLayout(BoxLayout):
 
     """Class representing the user layout (see .kv file for structure).
-
+    
     Attributes:
         user_slot_dct (dict): Dictionary mapping online users to their slots.
     """
 
     def __init__(self, user_info_lst):
         """Constructor method.
-
+        
         Args:
             user_info_lst (list): List of online users and their status.
         """
@@ -349,7 +349,7 @@ class UserLayout(BoxLayout):
     @mainthread
     def update(self, **kwargs):
         """Updates layout on user join, leave or status change.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -383,14 +383,14 @@ class UserLayout(BoxLayout):
 class CallLayout(BoxLayout):
 
     """Class representing the call layout (see .kv file for structure).
-
+    
     Attributes:
         call_slot_dct (dict): Dictionary mapping call masters to their respective calls.
     """
 
     def __init__(self, call_info_lst):
         """Constructor method.
-
+        
         Args:
             call_info_lst (list): List of users in each call and their masters.
         """
@@ -410,7 +410,7 @@ class CallLayout(BoxLayout):
     @mainthread
     def update(self, **kwargs):
         """Updates layout on call or user add or remove.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -453,7 +453,7 @@ class CallLayout(BoxLayout):
 class PendingCallFooter(BoxLayout):
 
     """Footer widget to be shown when a call is pending (see .kv file for structure).
-
+    
     Attributes:
         counter_update_evt (ClockEvent): Event scheduled by Kivy clock for
          updating counter every second.
@@ -463,7 +463,7 @@ class PendingCallFooter(BoxLayout):
 
     def __init__(self, username):
         """Constructor method.
-
+        
         Args:
             username (str): The user to call.
         """
@@ -486,41 +486,48 @@ class PendingCallFooter(BoxLayout):
 class CallFooter(BoxLayout):
 
     """Footer widget to be shown when a user is calling (see .kv file for structure).
-
+    
     Attributes:
+        accept_btn_pressed (bool): Whether the accept button has already been pressed.
         username (str): Name of calling user.
     """
 
     def __init__(self, username):
         """Constructor method.
-
+        
         Args:
             username (str): Name of calling user.
         """
 
         self.username = username
+        self.accept_btn_pressed = False
         BoxLayout.__init__(self)
 
     def on_call_btn_press(self, status):
         """Notifies server that the call was accepted/rejected by user.
-
+        
         Args:
             status (str): Call status (accept/reject)
         """
 
-        app = App.get_running_app()
-        app.send_gui_evt({
-            'type': 'call',
-            'subtype': 'response',
-            'caller': self.username,
-            'status': status
-        })
+        if status == 'reject' or not self.accept_btn_pressed:
+            app = App.get_running_app()
+            app.send_gui_evt({
+                'type': 'call',
+                'subtype': 'response',
+                'caller': self.username,
+                'status': status
+            })
+
+            # Preventing sending of multiple accept responses
+            if status == 'accept':
+                self.accept_btn_pressed = True
 
 
 class SessionLayout(BoxLayout):
 
     """Layout user sees during a call (see .kv file for structure).
-
+    
     Attributes:
         chat_layout (ChatLayout): Chat message display layout.
         master (str): Current call master.
@@ -529,7 +536,7 @@ class SessionLayout(BoxLayout):
 
     def __init__(self, **kwargs):
         """Constructor method.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictioanry form.
         """
@@ -543,7 +550,7 @@ class SessionLayout(BoxLayout):
 
     def update(self, **kwargs):
         """Updates session layout when changes in call occur.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -565,7 +572,7 @@ class SessionLayout(BoxLayout):
 class VideoLayout(FloatLayout):
 
     """Layout of all active video transmissions (see .kv file for structure).
-
+    
     Attributes:
         show_stats (bool): Whether to display statistics on screen.
         video_display_dct (dict): Dictionary mapping username to video display.
@@ -573,7 +580,7 @@ class VideoLayout(FloatLayout):
 
     def __init__(self, user_lst):
         """Constructor method.
-
+        
         Args:
             user_lst (list): List of users in call.
         """
@@ -591,7 +598,7 @@ class VideoLayout(FloatLayout):
 
     def update(self, **kwargs):
         """Updates video layout on user join or leave.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -611,7 +618,7 @@ class VideoLayout(FloatLayout):
     @mainthread
     def update_frame(self, **kwargs):
         """Updates video frame corresponding to user.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -641,7 +648,7 @@ class VideoLayout(FloatLayout):
 
     def reset_frame(self, user):
         """Resets a user's video display to the blank picture.
-
+        
         Args:
             user (str): Username of user to reset its display.
         """
@@ -656,7 +663,7 @@ class SelfVideoDisplay(Camera):
 
     def __init__(self, **kwargs):
         """Constructor method.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -667,7 +674,7 @@ class SelfVideoDisplay(Camera):
 class PeerVideoDisplay(FloatLayout):
 
     """Display of other peers' video capture (see .kv file for structure).
-
+    
     Attributes:
         show_stats (bool): Whether to display statistics on display.
         stat_lbl (Label): Label for showing call statistics.
@@ -676,7 +683,7 @@ class PeerVideoDisplay(FloatLayout):
 
     def __init__(self, user, show_stats):
         """Constructor method
-
+        
         Args:
             user (str): Name of user in video.
             show_stats (bool): Whether to display statistics on display.
@@ -703,7 +710,7 @@ class PeerVideoDisplay(FloatLayout):
 
 class StatisticsLabel(Label):
     """Label used for displaying call statistics (see .kv file for structure).
-
+    
     Attributes:
         FORMAT_DCT (dict): Dictionary mapping each data type to its format.
         text (TYPE): Description
@@ -718,7 +725,7 @@ class StatisticsLabel(Label):
 
     def __init__(self, **kwargs):
         """Constructor method.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -729,7 +736,7 @@ class StatisticsLabel(Label):
     @mainthread
     def update(self, **kwargs):
         """Updates statistics with new data.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -752,7 +759,7 @@ class ChatLayout(BoxLayout):
     @mainthread
     def add_msg(self, **kwargs):
         """Adds message to chat layout.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -799,14 +806,14 @@ class ChatLayout(BoxLayout):
 class MessageLabel(Label):
 
     """Label for displaying chat message (see .kv file do structure).
-
+    
     Attributes:
         msg (str): Chat message
     """
 
     def __init__(self, msg):
         """Constructor method.
-
+        
         Args:
             msg (str): Chat message
         """
@@ -818,11 +825,12 @@ class MessageLabel(Label):
 class SessionFooter(BoxLayout):
 
     """Footer displayed during a call (see .kv file for structure).
-
+    
     Attributes:
         counter_update_evt (ClockEvent): Event scheduled by Kivy clock for
          updating counter every second.
         elapsed_time (int): Time elapsed since widget appearance.
+        end_call_btn_pressed (bool): Whether the end call button has already been pressed.
     """
 
     def __init__(self):
@@ -830,6 +838,7 @@ class SessionFooter(BoxLayout):
         """
 
         self.elapsed_time = 0
+        self.end_call_btn_pressed = False
         BoxLayout.__init__(self)
         self.counter_update_evt = Clock.schedule_interval(
             lambda dt: self.update_counter(), 1)
@@ -844,7 +853,7 @@ class SessionFooter(BoxLayout):
 
     def on_medium_toggle_btn_press(self, medium):
         """Signals communication component to start/stop transmitting the given medium..
-
+        
         Args:
             medium (str): Medium to start/stop transmitting (audio/video).
         """
@@ -890,17 +899,18 @@ class SessionFooter(BoxLayout):
         """Leaves current call and notifies server.
         """
 
-        app = App.get_running_app()
-        app.send_gui_evt({
-            'type': 'session',
-            'subtype': 'leave'
-        })
-
+        if not self.end_call_btn_pressed:
+            app = App.get_running_app()
+            app.send_gui_evt({
+                'type': 'session',
+                'subtype': 'leave'
+            })
+            self.end_call_btn_pressed = True
 
 class PypeApp(App):
 
     """Main app class.
-
+    
     Attributes:
         gui_evt_port (int): Port of GUI event listener.
         gui_evt_sender (socket.socket): UDP socket that sends GUI events to
@@ -911,7 +921,7 @@ class PypeApp(App):
 
     def send_gui_evt(self, data):
         """Sends GUI event to communication component of app.
-
+        
         Args:
             data (dict): Event data (in JSON format).
         """
@@ -929,7 +939,7 @@ class PypeApp(App):
 
     def build(self):
         """App builder.
-
+        
         Returns:
             ScreenManager: Root screen manager.
         """
@@ -952,7 +962,7 @@ class PypeApp(App):
     @mainthread
     def switch_to_main_screen(self, **kwargs):
         """Switches current screen to main screen.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
