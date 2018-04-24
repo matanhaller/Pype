@@ -12,13 +12,13 @@ import select
 import json
 import sys
 import struct
-import pyaudio
-import cv2
 import base64
 import random
 from collections import deque
 
 import ntplib
+import pyaudio
+import cv2
 import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 from Crypto.Cipher import AES
@@ -612,7 +612,6 @@ class Session(object):
         self.seq_dct = {
             'audio': random.randint(0, Session.INTIAL_SEQ_RANGE),
             'video': random.randint(0, Session.INTIAL_SEQ_RANGE),
-            'feedback': random.randint(0, Session.INTIAL_SEQ_RANGE)
         }
 
         # Initializing audio and video statistics dictionaries
@@ -688,7 +687,6 @@ class Session(object):
             del self.audio_deque_dct[user]
             del self.audio_output_stream_dct[user]
 
-    @new_thread('rsa_thread')
     def send_rsa_public_key(self):
         """Generates and sends RSA public key to call master for receiving
         cryptographic info.
@@ -849,7 +847,6 @@ class Session(object):
 
         return conn
 
-    @new_thread('audio_init_thread')
     def init_audio_streams(self):
         """Initializes audio stream objects in a separate thread.
         """
@@ -874,7 +871,6 @@ class Session(object):
         # Waiting for cryptographic info exchange to complete and audio streams
         # to initialize
         while not hasattr(self, 'aes_key') \
-                or not hasattr(self, 'session_nonce') \
                 or not hasattr(self, 'audio_output_stream_dct'):
             pass
 
@@ -1073,15 +1069,8 @@ class Session(object):
                         'subtype': 'control',
                         'mode': 'feedback',
                         'src': username,
-                        'seq': self.seq_dct['feedback'],
-                        'session_nonce': base64.b64encode(self.session_nonce),
-                        'packet_nonce': base64.b64encode(os.urandom(Session.SESSION_NONCE_SIZE)),
                         'rate': optimal_rate
                     }
-
-                    # Incrementing feedback packet sequence number
-                    self.seq_dct['feedback'] += 1
-
                     self.task_lst.append(Task(self.unicast_control_conn, feedback_msg, dst=tuple(
                         self.unicast_addr_dct[user])))
 
