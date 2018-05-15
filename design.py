@@ -61,12 +61,12 @@ def get_color(type, name):
         name (str): Color name.
 
     Returns:
-        str: The chosen color in hex format.
+        str: The chosen color in RGBA format.
     """
 
     if type == 'light':
-        return LIGHT_COLOR_DCT[name]
-    return DARK_COLOR_DCT[name]
+        return rgba(LIGHT_COLOR_DCT[name])
+    return rgba(DARK_COLOR_DCT[name])
 
 
 def get_random_color():
