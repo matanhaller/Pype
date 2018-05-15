@@ -79,7 +79,7 @@ class Tracker(object):
 
         # Checking distance from expected sequence number
         if self.seq - kwargs['seq'] > 3:
-            return
+            return False
 
         # Checking for nonce reuse
         packet_nonce = base64.b64decode(kwargs['packet_nonce'])
@@ -292,6 +292,6 @@ class Tracker(object):
         """
 
         try:
-            return int(get_option('coefficient') / self.stat_dct['latency'])
+            return int(get_option('k') / self.stat_dct['latency'])
         except ZeroDivisionError:
             return None
