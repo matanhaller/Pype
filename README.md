@@ -3,5 +3,5 @@
 
 Current sprint goals:
 
-1. Add audio & video synchronization.
-2. Start implementing congestion control mechanism.
+1. Prettify code.
+2. Finish project portfolio.
