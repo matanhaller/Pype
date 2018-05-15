@@ -27,6 +27,7 @@ class Task(object):
             msg (dict): Message to be sent (in JSON format).
             dst (tuple, optional): Destination address (for UDP sockets only).
         """
+        
         self.conn = conn
         self.msg = msg
         if dst:
