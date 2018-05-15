@@ -40,22 +40,21 @@ from webcamstream import WebcamStream
 class PypePeer(object):
 
     """App peer class.
-
+    
     Attributes:
         app_thread_running_flag (bool): Flag indicating whether the app's Kivy thread is running.
         call_block (bool): Blocks user from calling other users when true.
         conn_lst (list): Active connections.
         gui_evt_conn (socket.socket): UDP connection with GUI component of app.
-        logged_in (bool): Whether the peer has logged as a user.
         MAX_RECV_SIZE (int): Maximum number of bytes to receive at once. (static)
         NTP_SERVER_ADDR (str): Address of an Israeli NTP server.
         plot_stats_flag (bool): Flag used for signalling that statistics are ready to be plotted.
-        reset_frame_evt (ClockEvent): Frame resetting event called when a user stops transmitting video.
+        reset_frame_evt_dct (dict): Dictionary of frame resetting events called when a user stops transmitting video.
         SERVER_ADDR (tuple): Server address info. (static)
         server_conn (socket.socket): Connection with server.
         session (Session): Session object of current call (defauls to None).
-        session_buffer (list): Buffer of data yet to be updated in session.
         task_lst (list): List of all pending tasks.
+        username (str): Username of online peer.
     """
 
     SERVER_ADDR = (get_option('server_ip_addr'), 5050)
@@ -72,17 +71,16 @@ class PypePeer(object):
         self.gui_evt_conn.bind(('localhost', 0))
         self.conn_lst = [self.server_conn, self.gui_evt_conn]
         self.task_lst = []
-        self.logged_in = False
         self.call_block = False
         self.session = None
-        self.session_buffer = []
         self.plot_stats_flag = False
+        self.reset_frame_evt_dct = {}
         if get_option('plot_stats'):
             self.stat_plot_loop()
 
     def get_gui_evt_port(self):
         """Get random allocated port number of GUI event listener.
-
+        
         Returns:
             int: The port number.
         """
@@ -146,8 +144,8 @@ class PypePeer(object):
                                    time_obj.day, time_obj.hour,
                                    time_obj.minute, time_obj.second,
                                    time_obj.microsecond / 1000)
-            print time_obj
-            Logger.info('Synced clock with network time.')
+
+            Logger.info('Synced clock with network time: {}.'.format(time_obj))
         except Exception as e:
             Logger.info('Time sync error: ' + str(e))
 
@@ -167,10 +165,10 @@ class PypePeer(object):
 
     def get_jsons(self, raw_data):
         """Retreives JSON objects string and parses it.
-
+        
         Args:
             raw_data (str): Data to parse.
-
+        
         Returns:
             list: Parsed JSON objects list.
         """
@@ -207,7 +205,7 @@ class PypePeer(object):
 
     def handle_readables(self, read_lst):
         """Handles all readable connections in mainloop.
-
+        
         Args:
             read_lst (list): Readable connections list.
         """
@@ -220,8 +218,7 @@ class PypePeer(object):
             try:
                 # Accepting connection for AES symmetric key exchange
                 if self.session and hasattr(self.session, 'crypto_conn') \
-                        and conn is self.session.crypto_conn and  hasattr(root, 'username') \
-                        and self.session.master == root.username:
+                        and conn is self.session.crypto_conn and self.session.master == self.username:
                     new_crypto_conn, addr = conn.accept()
                     self.conn_lst.append(new_crypto_conn)
                     continue
@@ -247,13 +244,15 @@ class PypePeer(object):
 
                 # Join request/response
                 if data['type'] == 'join':
+                    # Request
                     if data['subtype'] == 'request':
                         del data['subtype']
                         self.task_lst.append(Task(self.server_conn, data))
 
+                    # Response
                     elif data['subtype'] == 'response':
                         if data['status'] == 'ok':
-                            self.logged_in = True
+                            self.username = data['name']
                             app.switch_to_main_screen(**data)
                         else:
                             root.add_bottom_lbl('Username already exists')
@@ -270,13 +269,17 @@ class PypePeer(object):
                             # Leaving call if necessary
                             self.leave_call()
                             Logger.info('Call ended.')
-                        elif data['subtype'] in ['user_join', 'user_leave'] and data['name'] != root.username:
+                        elif data['subtype'] in ['user_join', 'user_leave'] and data['name'] != self.username:
+                            # Unscheduling blank image reload event if
+                            # necessary on user leave
+                            if data['subtype'] == 'user_leave' and data['name'] in self.reset_frame_evt_dct:
+                                self.reset_frame_evt_dct[data['name']].cancel()
+                                del self.reset_frame_evt_dct[data['name']]
+
                             # Updating session display
                             self.session.update(**data)
                             if hasattr(root, 'session_layout'):
                                 root.session_layout.update(**data)
-                            else:
-                                self.session_buffer.append(data)
 
                 # Call request/response
                 elif data['type'] == 'call':
@@ -342,7 +345,7 @@ class PypePeer(object):
                         elif data['subtype'] == 'content':
                             # Receiving chat message
                             if data['medium'] == 'chat':
-                                if data['src'] != root.username:
+                                if data['src'] != self.username:
                                     root.session_layout.chat_layout.add_msg(
                                         **data)
 
@@ -370,31 +373,28 @@ class PypePeer(object):
 
                             # Other peer video transmission stop
                             elif data['mode'] == 'state':
-                                if data['src'] != root.username:
+                                if data['src'] != self.username:
                                     if data['state'] == 'down':
-                                        self.reset_frame_evt = Clock.schedule_interval(
+                                        self.reset_frame_evt_dct[data['src']] = Clock.schedule_interval(
                                             lambda dt: root.session_layout.video_layout.reset_frame(
                                                 data['src']), 0.1)
                                     else:
-                                        self.reset_frame_evt.cancel()
+                                        self.reset_frame_evt_dct[
+                                            data['src']].cancel()
+                                        del self.reset_frame_evt_dct[
+                                            data['src']]
 
                             # Sending rate feedback
                             elif data['mode'] == 'feedback':
-                                if data['src'] != root.username and data['rate']:
+                                if data['src'] != self.username and data['rate']:
                                     self.session.set_optimal_rate(**data)
                                     Logger.info(
                                         'New sending rate: {} fps'.format(
                                             self.session.send_video.rate))
 
-                # Updating session layout with data from buffer
-                if hasattr(root, 'session_layout'):
-                    while self.session_buffer:
-                        kwargs = self.session_buffer.pop()
-                        root.session_layout.update(**kwargs)
-
     def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.
-
+        
         Args:
             write_lst (list): Writable connections list.
         """
@@ -406,7 +406,7 @@ class PypePeer(object):
 
     def start_call(self, **kwargs):
         """Procedures to be done when starting call.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -455,6 +455,11 @@ class PypePeer(object):
         peer = App.get_running_app().peer
         peer.plot_stats_flag = True
 
+        # Unscheduling frame resetting events if necessary
+        for reset_frame_evt in self.reset_frame_evt_dct.values():
+            reset_frame_evt.cancel()
+        self.reset_frame_evt_dct = {}
+
         # Removing active conns from connection list
         self.conn_lst.remove(self.session.content_conn_dct['chat'])
         for conn in self.session.control_conn_dct.values():
@@ -492,7 +497,7 @@ class PypePeer(object):
 class Session(object):
 
     """Class used for management of current call.
-
+    
     Attributes:
         aes_iv (str): Initialization vector for AES encryption and decryption.
         AES_IV_SIZE (int): Size of AES initialization vector.
@@ -527,6 +532,7 @@ class Session(object):
         unicast_addr_dct (dict): Dictionary of unicast addresses used for sending feedback.
         unicast_control_conn (socket.socket): Unicast UDP connection for sending feedback.
         user_lst (list): List of users in call.
+        username (str): Username of online peer.
         VIDEO_COMPRESSION_QUALITY (int): Value indicating the quality of the resultant frame
          after JPEG compression.
         video_stat_dct (dict): Video statistics dictionary.
@@ -548,7 +554,7 @@ class Session(object):
 
     def __init__(self, **kwargs):
         """Constructor method.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -565,8 +571,8 @@ class Session(object):
         self.crypto_conn.setsockopt(
             socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-        username = App.get_running_app().root_sm.current_screen.username
-        if username == kwargs['master']:
+        self.username = App.get_running_app().root_sm.current_screen.username
+        if self.username == kwargs['master']:
             # Initializing AES symmetric key and initialization vector
             self.aes_key = os.urandom(Session.AES_KEY_SIZE)
             self.aes_iv = os.urandom(Session.AES_IV_SIZE)
@@ -605,7 +611,7 @@ class Session(object):
         self.unicast_control_conn.setsockopt(
             socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.unicast_control_conn.bind(
-            ('', self.unicast_addr_dct[username][1]))
+            ('', self.unicast_addr_dct[self.username][1]))
 
         # Initializing audio, video and feedback sequence numbers with random
         # values
@@ -638,7 +644,7 @@ class Session(object):
 
     def update(self, **kwargs):
         """Updates session when changes in call occur.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -668,8 +674,7 @@ class Session(object):
 
                 # Creating TCP connection for cryptographic info exchange is
                 # user is the new call master
-                username = App.get_running_app().root_sm.current_screen.username
-                if prev_master != username and self.master == username:
+                if prev_master != self.username and self.master == self.username:
                     self.crypto_conn = socket.socket(
                         socket.AF_INET, socket.SOCK_STREAM)
                     self.crypto_conn.setsockopt(
@@ -717,7 +722,7 @@ class Session(object):
     def send_crypto_info(self, public_key, conn):
         """Sends cryptographic info (AES symmetric key and initialization vector
             and session nonce) to a new user in call who isn't the call master.
-
+        
         Args:
             public_key (str): RSA public key received from user.
             conn (socket.socket): TCP connection for sending the info.
@@ -741,7 +746,7 @@ class Session(object):
 
     def set_crypto_info(self, **kwargs):
         """Decrypts and sets cryptographic info received from call master.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictioanry form.
         """
@@ -765,10 +770,10 @@ class Session(object):
 
     def encrypt_msg(self, msg):
         """Encrypts message with AES symmetric encryption.
-
+        
         Args:
             msg (dict): JSON-formatted message.
-
+        
         Returns:
             dict: The encrypted message wrapped in another JSON.
         """
@@ -792,10 +797,10 @@ class Session(object):
 
     def decrypt_msg(self, msg):
         """Decrypts message with AES symmetric encryption.
-
+        
         Args:
             msg (dict): Encrypted data wrapped in JSON.
-
+        
         Returns:
             dict: Decrypted JSON-formatted message.
         """
@@ -821,11 +826,11 @@ class Session(object):
 
     def create_multicast_conn(self, addr, port):
         """Creates UDP socket and adds it to multicast group.
-
+        
         Args:
             addr (str): IP address of multicast group.
             port (int): Port number of multicast group.
-
+        
         Returns:
             socket.socket: UDP socket connected to multicast group.
         """
@@ -895,9 +900,9 @@ class Session(object):
             data_lst = peer.get_jsons(raw_data)
 
             # Tranferring audio packets to parallel threads for playing
-            root = App.get_running_app().root_sm.current_screen
             for data in data_lst:
-                if data['src'] != root.username:
+                if data['src'] != self.username and \
+                        self.audio_stat_dct[data['src']].check_packet_integrity(**data):
                     self.audio_deque_dct[data['src']].append(data)
 
                     # Updating audio statistics
@@ -908,7 +913,7 @@ class Session(object):
     @new_thread()
     def play_audio_packets(self, user):
         """Plays audio of a certain user in parallel.
-
+        
         Args:
             user (str): User whose audio is to be processed.
         """
@@ -920,12 +925,10 @@ class Session(object):
                     data = self.audio_deque_dct[user].pop()
 
                     # Decoding and playing audio packet
-                    username = App.get_running_app().root_sm.current_screen.username
                     if user in self.audio_stat_dct:
-                        if user != username and self.audio_stat_dct[user].check_packet_integrity(**data):
-                            audio_chunk = base64.b64decode(data['chunk'])
-                            self.audio_output_stream_dct[
-                                user].write(audio_chunk)
+                        audio_chunk = base64.b64decode(data['chunk'])
+                        self.audio_output_stream_dct[
+                            user].write(audio_chunk)
             except KeyError:
                 break
 
@@ -937,13 +940,12 @@ class Session(object):
         audio_chunk = self.audio_input_stream.read(Session.AUDIO_CHUNK_SIZE)
 
         # Composing audio packet
-        username = App.get_running_app().root_sm.current_screen.username
         audio_msg = {
             'type': 'session',
             'subtype': 'content',
             'medium': 'audio',
             'timestamp': None,
-            'src': username,
+            'src': self.username,
             'seq': self.seq_dct['audio'],
             'session_nonce': base64.b64encode(self.session_nonce),
             'packet_nonce': base64.b64encode(os.urandom(Session.SESSION_NONCE_SIZE)),
@@ -994,7 +996,7 @@ class Session(object):
                 if data['src'] in self.video_stat_dct:
                     if self.video_stat_dct[data['src']].check_packet_integrity(**data):
                         root = App.get_running_app().root_sm.current_screen
-                        if hasattr(root, 'session_layout') and data['src'] != root.username:
+                        if hasattr(root, 'session_layout') and data['src'] != self.username:
                             root.session_layout.video_layout.update_frame(
                                 **data)
 
@@ -1015,13 +1017,12 @@ class Session(object):
 
         if ret:
             # Composing video packet
-            username = App.get_running_app().root_sm.current_screen.username
             video_msg = {
                 'type': 'session',
                 'subtype': 'content',
                 'medium': 'video',
                 'timestamp': None,
-                'src': username,
+                'src': self.username,
                 'seq': self.seq_dct['video'],
                 'session_nonce': base64.b64encode(self.session_nonce),
                 'packet_nonce': base64.b64encode(os.urandom(Session.SESSION_NONCE_SIZE)),
@@ -1039,17 +1040,29 @@ class Session(object):
                  dst=(self.multicast_addr_dct['video'], Session.MULTICAST_CONTENT_PORT)).send_msg()
 
     def send_chat(self, **kwargs):
-        """Sends chat message to call multicast chat group.
-
+        """Sends encrypted chat message to call multicast chat group.
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
 
-        kwargs['subtype'] = 'content'
-        kwargs['medium'] = 'chat'
-        kwargs['timestamp'] = None
+        # Composing chat packet
+        chat_msg = {
+            'type': 'session',
+            'subtype': 'content',
+            'medium': 'chat',
+            'timestamp': None,
+            'src': self.username,
+            'session_nonce': base64.b64encode(self.session_nonce),
+            'msg': kwargs['msg']
+        }
+
+        # Encrypting chat packet
+        encrypted_chat_msg = self.encrypt_msg(chat_msg)
+
+        # Sending chat packet
         self.task_lst.append(
-            Task(self.content_conn_dct['chat'], kwargs,
+            Task(self.content_conn_dct['chat'], encrypted_chat_msg,
                  dst=(self.multicast_addr_dct['chat'], Session.MULTICAST_CONTENT_PORT)))
 
     @rate_limit(1)
@@ -1057,18 +1070,15 @@ class Session(object):
         """Sends the calculated optimal sending rate to all users in call
         """
 
-        root = App.get_running_app().root_sm.current_screen
-        username = root.username
-
         for user in self.unicast_addr_dct:
-            if user != username:
+            if user != self.username:
                 optimal_rate = self.video_stat_dct[user].optimal_sending_rate()
                 if optimal_rate:
                     feedback_msg = {
                         'type': 'session',
                         'subtype': 'control',
                         'mode': 'feedback',
-                        'src': username,
+                        'src': self.username,
                         'rate': optimal_rate
                     }
                     self.task_lst.append(Task(self.unicast_control_conn, feedback_msg, dst=tuple(
@@ -1078,12 +1088,12 @@ class Session(object):
         """
         Sets the new sending rate unsing the following logic:
             1. If CLR hasn't been determined or a user offered a sending rate
-             lower and current CLR, make the user the new CLR.
+             lower than current CLR, make the user the new CLR.
             2. IF the user is CLR, update the rate according to him.
             3. Else, don't change a thing.
-
+        
             The rate is updated with 40% weight to avoid abruptness in rate change.
-
+        
         Args:
             **kwargs: Keyword arguments supplied in dictionary form.
         """
@@ -1094,13 +1104,11 @@ class Session(object):
         if not clr_user or clr_user != kwargs['src'] \
                 and kwargs['rate'] < clr_rate:
             self.clr = [kwargs['src'], kwargs['rate']]
-            new_rate = kwargs['rate']
-        elif clr_user == kwargs['src']:
-            new_rate = kwargs['rate']
-        else:
+        elif clr_user != kwargs['src']:
             return
 
         # Setting new rate
+        new_rate = kwargs['rate']
         current_rate = self.send_video.rate
         self.send_video.__func__.rate = int(
             0.6 * current_rate + 0.4 * new_rate)
@@ -1111,17 +1119,16 @@ class Session(object):
         """
 
         root = App.get_running_app().root_sm.current_screen
-        username = root.username
         video_display_dct = root.session_layout.video_layout.video_display_dct
 
         for user in self.user_lst:
-            if user != username:
+            if user != self.username:
                 stats = self.video_stat_dct[user].stat_dct
                 video_display_dct[user].stat_lbl.update(**stats)
 
     def plot_stats(self, user):
         """Plots audio and video statistics of user.
-
+        
         Args:
             user (str): User whose statistics are to be plotted.
         """
@@ -1139,8 +1146,7 @@ class Session(object):
         if get_option('stats_to_plot') == 'all':
             stats_to_plot = audio_tracker.stat_dct.keys()
         else:
-            stats_to_plot = filter(lambda stat: stat !=
-                                   '', get_option('stats_to_plot').split(','))
+            stats_to_plot = get_option('stats_to_plot').split(',')
 
         # Ploting statistics
         rows, cols = len(stats_to_plot), 1
@@ -1173,11 +1179,8 @@ class Session(object):
         """Plots audio and video statistics of all users in call.
         """
 
-        root = App.get_running_app().root_sm.current_screen
-        username = root.username
-
         for user in self.user_lst:
-            if user != username:
+            if user != self.username:
                 self.plot_stats(user)
 
     def terminate(self):

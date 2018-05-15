@@ -6,7 +6,6 @@ import logging
 import socket
 import select
 import json
-import logging
 
 from task import Task
 from user import User
@@ -94,7 +93,6 @@ class PypeServer(object):
                 if not raw_data:
                     user = self.get_user_from_conn(conn)
                     if user:
-                        self.logger.info('{} left.'.format(user.name))
                         del self.user_dct[user.name]
 
                         # Notifying other users that user has left
@@ -104,6 +102,8 @@ class PypeServer(object):
                         # Removing user from call if participated
                         if user.call:
                             self.handle_call_user_leave(user)
+
+                        self.logger.info('{} left.'.format(user.name))
 
                     self.logger.info(
                         '{} disconnected.'.format(self.conn_dct[conn]))
@@ -115,6 +115,7 @@ class PypeServer(object):
 
                     # Handling messages
                     for data in data_lst:
+                        # print data
                         # Join request/response
                         if data['type'] == 'join':
                             # Checking if username already exists
@@ -159,6 +160,7 @@ class PypeServer(object):
 
                         # Call request/response
                         elif data['type'] == 'call':
+                            # Call request
                             if data['subtype'] == 'request':
                                 caller = self.get_user_from_conn(conn)
                                 for username in [caller.name, data['callee']]:
@@ -173,6 +175,7 @@ class PypeServer(object):
                                     'caller': caller.name
                                 }))
 
+                            # Call response
                             elif data['subtype'] == 'callee_response':
                                 caller = data['caller']
                                 callee = self.get_user_from_conn(conn)
@@ -181,8 +184,10 @@ class PypeServer(object):
                                     'subtype': 'callee_response',
                                     'status': data['status']
                                 }
+                                # Accept
                                 if data['status'] == 'accept':
                                     if self.user_dct[caller].call or callee.call:
+                                        # Adding user to existing call
                                         if self.user_dct[caller].call:
                                             call = self.user_dct[caller].call
                                             callee.join_call(call)
@@ -221,10 +226,12 @@ class PypeServer(object):
                                     response_msg['unicast_addrs'] = {user: self.conn_dct[
                                         self.user_dct[user].conn] for user in call.user_lst}
 
-                                    # Adding addresses to response message
+                                    # Adding multicast addresses to response
                                     response_msg['addrs'] = call.addr_dct
                                     self.task_lst.append(
                                         Task(conn, response_msg))
+
+                                # Reject
                                 else:
                                     callee = self.get_user_from_conn(conn)
                                     for username in [callee.name, data['caller']]:
@@ -335,17 +342,20 @@ class PypeServer(object):
                 'type': 'call_update',
                 'timestamp': None
             }
+
             call_update_msg.update(kwargs)
+
             self.task_lst.append(
                 Task(self.user_dct[active_user].conn, call_update_msg))
 
     def handle_call_user_leave(self, user):
-        """Removes user from call and reports other users.
+        """Removes user from call and reports to other users.
 
         Args:
             user (User): User that left the call.
         """
 
+        # Changing call master if necessary
         call = user.call
         prev_master = call.master
         user.leave_call()
@@ -359,8 +369,11 @@ class PypeServer(object):
             # Returning allocated addresses to list
             self.multicast_addr_lst += call.addr_dct.values()
 
+            # Reporting call removal
             self.report_call_update(
                 subtype='call_remove', master=prev_master)
+
+            # Removing users from call
             del self.call_dct[call.master]
             for participant in call.user_lst:
                 if participant in self.user_dct:
@@ -375,6 +388,7 @@ class PypeServer(object):
                 subtype='user_leave', master=prev_master,
                 new_master=call.master, name=user.name)
 
+        # Changing user status
         if user.name in self.user_dct:
             user.switch_status()
             self.report_user_update(
