@@ -221,176 +221,177 @@ class PypePeer(object):
                         and conn is self.session.crypto_conn and self.session.master == self.username:
                     new_crypto_conn, addr = conn.accept()
                     self.conn_lst.append(new_crypto_conn)
-                    continue
                 else:
                     raw_data = conn.recv(PypePeer.MAX_RECV_SIZE)
 
-                # Closing connection if necessary
-                if not raw_data:
-                    self.conn_lst.remove(conn)
-                    conn.close()
+                    # Closing connection if necessary
+                    if not raw_data:
+                        self.conn_lst.remove(conn)
+                        conn.close()
+
+                    else:
+                        # Parsing JSON data
+                        data_lst = self.get_jsons(raw_data)
+
+                        # Handling messages
+                        for data in data_lst:
+                            # GUI terminated
+                            if data['type'] == 'terminate':
+                                self.terminate()
+
+                            # Join request/response
+                            if data['type'] == 'join':
+                                # Request
+                                if data['subtype'] == 'request':
+                                    del data['subtype']
+                                    self.task_lst.append(Task(self.server_conn, data))
+
+                                # Response
+                                elif data['subtype'] == 'response':
+                                    if data['status'] == 'ok':
+                                        self.username = data['name']
+                                        app.switch_to_main_screen(**data)
+                                    else:
+                                        root.add_bottom_lbl('Username already exists')
+
+                            # User update
+                            elif data['type'] == 'user_update':
+                                root.user_layout.update(**data)
+
+                            # Call update
+                            elif data['type'] == 'call_update':
+                                root.call_layout.update(**data)
+                                if self.session and data['master'] == self.session.master:
+                                    if data['subtype'] == 'call_remove':
+                                        # Leaving call if necessary
+                                        self.leave_call()
+                                        Logger.info('Call ended.')
+                                    elif data['subtype'] in ['user_join', 'user_leave'] and data['name'] != self.username:
+                                        # Unscheduling blank image reload event if
+                                        # necessary on user leave
+                                        if data['subtype'] == 'user_leave' and data['name'] in self.reset_frame_evt_dct:
+                                            self.reset_frame_evt_dct[data['name']].cancel()
+                                            del self.reset_frame_evt_dct[data['name']]
+
+                                        # Updating session display
+                                        self.session.update(**data)
+                                        if hasattr(root, 'session_layout'):
+                                            root.session_layout.update(**data)
+
+                            # Call request/response
+                            elif data['type'] == 'call':
+                                if data['subtype'] == 'request':
+                                    if not self.call_block:
+                                        if not data['group'] and root.user_layout.user_slot_dct[data['callee']].status == 'in call':
+                                            self.call_block = False
+                                            mode = 'user_not_available'
+                                        else:
+                                            self.call_block = True
+                                            mode = 'pending_call'
+                                            self.task_lst.append(Task(self.server_conn, {
+                                                'type': 'call',
+                                                'subtype': 'request',
+                                                'callee': data['callee']
+                                            }))
+                                        root.add_footer_widget(mode=mode, **data)
+
+                                # Call request
+                                elif data['subtype'] == 'participate':
+                                    self.call_block = True
+                                    root.add_footer_widget(mode='call', **data)
+
+                                # Self call response
+                                elif data['subtype'] == 'response':
+                                    if data['status'] == 'reject':
+                                        self.call_block = False
+                                        root.remove_footer_widget()
+                                    self.task_lst.append(Task(self.server_conn, {
+                                        'type': 'call',
+                                        'subtype': 'callee_response',
+                                        'caller': data['caller'],
+                                        'status': data['status']
+                                    }))
+
+                                # Callee response
+                                elif data['subtype'] == 'callee_response':
+                                    if data['status'] == 'accept':
+                                        if hasattr(root, 'session_layout'):
+                                            if hasattr(root, 'footer_widget'):
+                                                root.remove_footer_widget()
+                                        else:
+                                            self.start_call(**data)
+                                            Logger.info('Call started.')
+                                    else:
+                                        root.add_footer_widget(mode='rejected_call')
+                                    self.call_block = False
+
+                            # Session messages
+                            elif data['type'] == 'session':
+                                # Leaving call
+                                if data['subtype'] == 'leave':
+                                    self.task_lst.append(Task(self.server_conn, data))
+                                    self.leave_call()
+                                    Logger.info('Call ended.')
+
+                                elif self.session:
+                                    # Sending chat message
+                                    if data['subtype'] == 'self_chat':
+                                        self.session.send_chat(**data)
+
+                                    # Content packets
+                                    elif data['subtype'] == 'content':
+                                        # Receiving chat message
+                                        if data['medium'] == 'chat':
+                                            if data['src'] != self.username:
+                                                root.session_layout.chat_layout.add_msg(
+                                                    **data)
+
+                                    # Control packets
+                                    elif data['subtype'] == 'control':
+                                        # Receiving RSA public key
+                                        if data['mode'] == 'rsa_public_key':
+                                            self.session.send_crypto_info(
+                                                data['key'], conn)
+
+                                        # Receiving cryptographic info from call master
+                                        elif data['mode'] == 'crypto_info':
+                                            self.session.set_crypto_info(**data)
+                                            Logger.info('Cryptographic info set.')
+
+                                        # Starting/stopping transmission
+                                        elif data['mode'] == 'self_state':
+                                            self.session.send_flag_dct[data['medium']] = \
+                                                not self.session.send_flag_dct[
+                                                    data['medium']]
+                                            if data['medium'] == 'video':
+                                                data['mode'] = 'state'
+                                                self.task_lst.append(Task(self.session.control_conn_dct['video'], data, dst=(
+                                                    self.session.multicast_addr_dct['video'], Session.MULTICAST_CONTROL_PORT)))
+
+                                        # Other peer video transmission stop
+                                        elif data['mode'] == 'state':
+                                            if data['src'] != self.username:
+                                                if data['state'] == 'down':
+                                                    self.reset_frame_evt_dct[data['src']] = Clock.schedule_interval(
+                                                        lambda dt: root.session_layout.video_layout.reset_frame(
+                                                            data['src']), 0.1)
+                                                else:
+                                                    self.reset_frame_evt_dct[
+                                                        data['src']].cancel()
+                                                    del self.reset_frame_evt_dct[
+                                                        data['src']]
+
+                                        # Sending rate feedback
+                                        elif data['mode'] == 'feedback':
+                                            if data['src'] != self.username and data['rate']:
+                                                self.session.set_optimal_rate(**data)
+                                                Logger.info(
+                                                    'New sending rate: {} fps'.format(
+                                                        self.session.send_video.rate))
+
             except socket.error as e:
                 Logger.info('Unexpected error: ' + str(e))
                 break
-
-            # Parsing JSON data
-            data_lst = self.get_jsons(raw_data)
-
-            # Handling messages
-            for data in data_lst:
-                # GUI terminated
-                if data['type'] == 'terminate':
-                    self.terminate()
-
-                # Join request/response
-                if data['type'] == 'join':
-                    # Request
-                    if data['subtype'] == 'request':
-                        del data['subtype']
-                        self.task_lst.append(Task(self.server_conn, data))
-
-                    # Response
-                    elif data['subtype'] == 'response':
-                        if data['status'] == 'ok':
-                            self.username = data['name']
-                            app.switch_to_main_screen(**data)
-                        else:
-                            root.add_bottom_lbl('Username already exists')
-
-                # User update
-                elif data['type'] == 'user_update':
-                    root.user_layout.update(**data)
-
-                # Call update
-                elif data['type'] == 'call_update':
-                    root.call_layout.update(**data)
-                    if self.session and data['master'] == self.session.master:
-                        if data['subtype'] == 'call_remove':
-                            # Leaving call if necessary
-                            self.leave_call()
-                            Logger.info('Call ended.')
-                        elif data['subtype'] in ['user_join', 'user_leave'] and data['name'] != self.username:
-                            # Unscheduling blank image reload event if
-                            # necessary on user leave
-                            if data['subtype'] == 'user_leave' and data['name'] in self.reset_frame_evt_dct:
-                                self.reset_frame_evt_dct[data['name']].cancel()
-                                del self.reset_frame_evt_dct[data['name']]
-
-                            # Updating session display
-                            self.session.update(**data)
-                            if hasattr(root, 'session_layout'):
-                                root.session_layout.update(**data)
-
-                # Call request/response
-                elif data['type'] == 'call':
-                    if data['subtype'] == 'request':
-                        if not self.call_block:
-                            if not data['group'] and root.user_layout.user_slot_dct[data['callee']].status == 'in call':
-                                self.call_block = False
-                                mode = 'user_not_available'
-                            else:
-                                self.call_block = True
-                                mode = 'pending_call'
-                                self.task_lst.append(Task(self.server_conn, {
-                                    'type': 'call',
-                                    'subtype': 'request',
-                                    'callee': data['callee']
-                                }))
-                            root.add_footer_widget(mode=mode, **data)
-
-                    # Call request
-                    elif data['subtype'] == 'participate':
-                        self.call_block = True
-                        root.add_footer_widget(mode='call', **data)
-
-                    # Self call response
-                    elif data['subtype'] == 'response':
-                        if data['status'] == 'reject':
-                            self.call_block = False
-                            root.remove_footer_widget()
-                        self.task_lst.append(Task(self.server_conn, {
-                            'type': 'call',
-                            'subtype': 'callee_response',
-                            'caller': data['caller'],
-                            'status': data['status']
-                        }))
-
-                    # Callee response
-                    elif data['subtype'] == 'callee_response':
-                        if data['status'] == 'accept':
-                            if hasattr(root, 'session_layout'):
-                                if hasattr(root, 'footer_widget'):
-                                    root.remove_footer_widget()
-                            else:
-                                self.start_call(**data)
-                                Logger.info('Call started.')
-                        else:
-                            root.add_footer_widget(mode='rejected_call')
-                        self.call_block = False
-
-                # Session messages
-                elif data['type'] == 'session':
-                    # Leaving call
-                    if data['subtype'] == 'leave':
-                        self.task_lst.append(Task(self.server_conn, data))
-                        self.leave_call()
-                        Logger.info('Call ended.')
-
-                    elif self.session:
-                        # Sending chat message
-                        if data['subtype'] == 'self_chat':
-                            self.session.send_chat(**data)
-
-                        # Content packets
-                        elif data['subtype'] == 'content':
-                            # Receiving chat message
-                            if data['medium'] == 'chat':
-                                if data['src'] != self.username:
-                                    root.session_layout.chat_layout.add_msg(
-                                        **data)
-
-                        # Control packets
-                        elif data['subtype'] == 'control':
-                            # Receiving RSA public key
-                            if data['mode'] == 'rsa_public_key':
-                                self.session.send_crypto_info(
-                                    data['key'], conn)
-
-                            # Receiving cryptographic info from call master
-                            elif data['mode'] == 'crypto_info':
-                                self.session.set_crypto_info(**data)
-                                Logger.info('Cryptographic info set.')
-
-                            # Starting/stopping transmission
-                            elif data['mode'] == 'self_state':
-                                self.session.send_flag_dct[data['medium']] = \
-                                    not self.session.send_flag_dct[
-                                        data['medium']]
-                                if data['medium'] == 'video':
-                                    data['mode'] = 'state'
-                                    self.task_lst.append(Task(self.session.control_conn_dct['video'], data, dst=(
-                                        self.session.multicast_addr_dct['video'], Session.MULTICAST_CONTROL_PORT)))
-
-                            # Other peer video transmission stop
-                            elif data['mode'] == 'state':
-                                if data['src'] != self.username:
-                                    if data['state'] == 'down':
-                                        self.reset_frame_evt_dct[data['src']] = Clock.schedule_interval(
-                                            lambda dt: root.session_layout.video_layout.reset_frame(
-                                                data['src']), 0.1)
-                                    else:
-                                        self.reset_frame_evt_dct[
-                                            data['src']].cancel()
-                                        del self.reset_frame_evt_dct[
-                                            data['src']]
-
-                            # Sending rate feedback
-                            elif data['mode'] == 'feedback':
-                                if data['src'] != self.username and data['rate']:
-                                    self.session.set_optimal_rate(**data)
-                                    Logger.info(
-                                        'New sending rate: {} fps'.format(
-                                            self.session.send_video.rate))
 
     def handle_tasks(self, write_lst):
         """Iterates over tasks and sends messages if possible.

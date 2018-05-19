@@ -220,6 +220,7 @@ class PypeServer(object):
                                         self.logger.info('Call started, participants: {}.'.format(
                                             ', '.join(call.user_lst)))
 
+                                    # Composing response message
                                     self.user_dct[caller].call = call
                                     response_msg['master'] = call.master
                                     response_msg['user_lst'] = call.user_lst
@@ -228,6 +229,7 @@ class PypeServer(object):
 
                                     # Adding multicast addresses to response
                                     response_msg['addrs'] = call.addr_dct
+                                    
                                     self.task_lst.append(
                                         Task(conn, response_msg))
 
