@@ -754,7 +754,7 @@ class ChatLayout(BoxLayout):
          doesn't contains ']' or '[' (to prevent markup injection).
     """
 
-    MSG_REGEX = r'[^\[\]]+'
+    MSG_REGEX = r'[^\[\]]+$'
 
     def __init__(self):
         """Constructor method.
